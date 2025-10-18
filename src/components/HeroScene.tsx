@@ -1,25 +1,24 @@
 // components/HeroScene.tsx
 'use client'
 
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, RootState } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
+import type { GLTF } from 'three-stdlib'
 import * as THREE from 'three'
 import { useMemo, useRef } from 'react'
-
-type GLTFResult = {
-  scene: THREE.Group
-}
 
 function GradientRecolor({ root }: { root: THREE.Object3D }) {
   // สแกนทุก mesh แล้วแทนที่ material เป็น ShaderMaterial แบบ gradient
   useMemo(() => {
-    root.traverse((obj) => {
+    root.traverse((obj: THREE.Object3D) => {
+      if (!('isMesh' in obj) || !(obj as THREE.Mesh).isMesh) return
       const mesh = obj as THREE.Mesh
-      if (!mesh.isMesh || !mesh.geometry) return
+      if (!mesh.geometry) return
 
       // คำนวณ bounding box ต่อชิ้น เพื่อ normalize แกน Y ทำ gradient สวย ๆ
       mesh.geometry.computeBoundingBox()
-      const bbox = mesh.geometry.boundingBox!
+      const bbox = mesh.geometry.boundingBox
+      if (!bbox) return
       const minY = bbox.min.y
       const maxY = bbox.max.y
       const rangeY = Math.max(0.0001, maxY - minY)
@@ -58,8 +57,8 @@ function GradientRecolor({ root }: { root: THREE.Object3D }) {
         depthWrite: true,
       })
 
-      // ปิด toneMapped เพื่อให้สีสดตามที่ตั้ง
-      ;(mat as any).toneMapped = false
+      // ปิด toneMapped เพื่อให้สีสดตามที่ตั้ง (type ของ ShaderMaterial รองรับอยู่แล้ว)
+      mat.toneMapped = false
 
       mesh.material = mat
     })
@@ -70,16 +69,16 @@ function GradientRecolor({ root }: { root: THREE.Object3D }) {
 
 function Model() {
   const groupRef = useRef<THREE.Group>(null)
-  const { scene } = useGLTF('/models/roblox_logo.glb') as unknown as GLTFResult
+  const gltf = useGLTF('/models/roblox_logo.glb') as GLTF
+  const scene = gltf.scene as THREE.Group
 
   // ปรับสเกล/ตำแหน่งให้พอดีกับ Hero และไปอยู่หลังตัวหนังสือ (ล่างซ้าย)
-  // Tip: ปรับค่า scale/position ตามขนาดโมเดลจริงได้เลย
   const scale = 1.3
   const position: [number, number, number] = [-0.8, -0.35, 0] // ขยับลงล่างซ้าย
   const rotation: [number, number, number] = [0, 0, 0]
 
   // หมุนเฉพาะแกน Y
-  useFrame((_, delta) => {
+  useFrame((_state: RootState, delta: number) => {
     if (!groupRef.current) return
     groupRef.current.rotation.y += delta * 0.3
   })
