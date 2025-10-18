@@ -1,0 +1,88 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { useCatalog } from '@/app/hooks/useCatalog'
+import type { Item } from '@/types/catalog'
+import FakeUrgency from '@/components/FakeUrgency'
+import { useCart } from '@/app/context/CartContext'
+
+function parsePrice(s?: string | null) {
+  if (!s || s === '-' || s.toLowerCase() === 'free') return 0
+  const n = Number(String(s).replace(/[^0-9.]/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
+
+export default function ViewAllPage() {
+  const params = useSearchParams()
+  const [q, setQ] = useState('')
+  const cat = params.get('cat') // 'roblox' | 'ugc' | null
+  const { data, roblox, ugc } = useCatalog(q)
+
+  const items = useMemo<Item[]>(() => {
+    if (cat === 'roblox') return roblox
+    if (cat === 'ugc') return ugc
+    const r = data?.robloxLimiteds ?? []
+    const u = data?.ugcLimiteds ?? []
+    return [...r, ...u]
+  }, [cat, data, roblox, ugc])
+
+  const { add } = useCart()
+
+  return (
+    <main className="mx-auto max-w-7xl px-4 py-6">
+      <div className="flex flex-wrap items-end gap-3">
+        <h1 className="text-2xl font-extrabold tracking-tight">ดูสินค้าทั้งหมด</h1>
+        <div className="text-sm text-white/60">{items.length} รายการ</div>
+
+        <div className="ml-auto flex items-center gap-2 rounded-xl bg-white/5 px-3 ring-1 ring-white/10">
+          <svg width="18" height="18" viewBox="0 0 24 24" className="opacity-70">
+            <path
+              fill="currentColor"
+              d="M15.5 14h-.79l-.28-.27a6.47 6.47 0 0 0 1.48-5.34C15.21 5.01 12.2 2 8.6 2S2 5.01 2 8.39 5.01 14.78 8.6 14.78c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19z"
+            />
+          </svg>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="ค้นหา…"
+            className="w-48 bg-transparent py-2 text-sm outline-none placeholder:text-white/40"
+          />
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        {items.map((i) => (
+          <div key={i.id} className="rounded-xl bg-white/5 ring-1 ring-white/10 overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={i.image} alt={i.title} className="h-40 w-full object-cover" />
+            <div className="p-3">
+              <div className="line-clamp-1 font-semibold text-white/90">{i.title}</div>
+              <div className="mt-0.5 text-xs text-white/60">
+                By <span className="text-white/80">{i.by}</span>
+              </div>
+              <FakeUrgency id={i.id} />
+              <div className="mt-2 flex items-center justify-between">
+                <div className="text-sm font-semibold text-cyan-300">{i.price ?? '-'}</div>
+                <button
+                  onClick={() =>
+                    add({
+                      id: i.id,
+                      title: i.title,
+                      image: i.image,
+                      price: parsePrice(i.price),
+                      qty: 1,
+                    })
+                  }
+                  className="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </main>
+  )
+}
