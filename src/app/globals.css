@@ -1,0 +1,59 @@
+@import "tailwindcss";
+/* Pixel-ish border option (ใช้เพิ่มในคลาสได้) */
+.pixel-border {
+  position: relative;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.04);
+}
+@keyframes float-slow {
+  0% {
+    transform: translateY(0) translateX(0);
+  }
+  50% {
+    transform: translateY(-8px) translateX(6px);
+  }
+  100% {
+    transform: translateY(0) translateX(0);
+  }
+}
+@keyframes float-slower {
+  0% {
+    transform: translateY(0) translateX(0);
+  }
+  50% {
+    transform: translateY(10px) translateX(-8px);
+  }
+  100% {
+    transform: translateY(0) translateX(0);
+  }
+}
+@keyframes breathe {
+  0% {
+    opacity: 0.28;
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: translateX(-50%) scale(1.06);
+  }
+  100% {
+    opacity: 0.28;
+    transform: translateX(-50%) scale(1);
+  }
+}
+.animate-float-slow {
+  animation: float-slow 10s ease-in-out infinite;
+}
+.animate-float-slower {
+  animation: float-slower 14s ease-in-out infinite;
+}
+.animate-breathe {
+  animation: breathe 8s ease-in-out infinite;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none; /* สำหรับ IE และ Edge */
+  scrollbar-width: none; /* สำหรับ Firefox */
+}
