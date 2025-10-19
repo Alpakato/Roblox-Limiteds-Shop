@@ -15,20 +15,46 @@ export function useCatalog(query: string) {
       ; (async () => {
         try {
           setLoading(true)
-          // ✅ ใช้ path แบบ public
-          const res = await fetch('/data/items.json')
+          const res = await fetch('/data/items.json', { cache: 'no-cache' })
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          const json = await res.json()
-          const parsed = CatalogSchema.parse(json)
+
+          const raw = await res.text()
+          console.log('📄 items.json (raw):\n', raw.slice(0, 1000)) // ตัดมาโชว์พอเห็นต้นเรื่อง
+          let json: unknown
+
+          try {
+            // กัน BOM และตัวอักษรแปลก
+            const cleaned = raw.replace(/^\uFEFF/, '')
+            json = JSON.parse(cleaned)
+          } catch (parseErr) {
+            console.error('❌ JSON.parse failed:', parseErr)
+            throw new Error('Invalid JSON format in items.json')
+          }
+
+          // ตรวจด้วย Zod แบบไม่โยน error เพื่อได้ path ละเอียดยิบ
+          const result = CatalogSchema.safeParse(json)
+          if (!result.success) {
+            console.error('❌ Zod validation error:', result.error.format())
+            throw new Error('JSON does not match Catalog schema')
+          }
+
+          const parsed = result.data
+          console.log('✅ Parsed OK. Examples:', {
+            firstRoblox: parsed.robloxLimiteds?.[0],
+            firstUGC: parsed.ugcLimiteds?.[0],
+          })
+
           _cache = parsed
           setData(parsed)
         } catch (e: any) {
+          console.error('❌ Error loading catalog:', e)
           setError(e?.message ?? 'Load failed')
         } finally {
           setLoading(false)
         }
       })()
   }, [])
+
 
   const filtered = useMemo(() => {
     if (!data) return { roblox: [] as Item[], ugc: [] as Item[] }

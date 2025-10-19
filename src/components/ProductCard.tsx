@@ -1,8 +1,10 @@
 'use client'
 
+import { useRef } from 'react'
 import { Item } from '@/types/catalog'
 import { useCart } from '@/app/context/CartContext'
 import FakeUrgency from '@/components/FakeUrgency'
+import { emitCartAdd } from '@/app/lib/flyToCart'
 
 const Tag = ({ text, tone = 'emerald' }: { text: string; tone?: 'emerald' | 'cyan' }) => {
   const toneMap: Record<string, string> = {
@@ -20,12 +22,18 @@ function parsePrice(s?: string | null) {
 
 export default function ProductCard({ item }: { item: Item }) {
   const { add } = useCart()
+  const imgRef = useRef<HTMLImageElement | null>(null)
 
   return (
-    <div className="group relative w-60 shrink-0 snap-start overflow-hidden rounded-xl bg-white/3 backdrop-blur-sm ring-1 ring-white/10 hover:ring-white/20 hover:shadow-lg hover:shadow-black/40 transition-all ma-5">
+    <div className="group relative w-60 shrink-0 snap-start overflow-hidden rounded-xl bg-white/3 backdrop-blur-sm ring-1 ring-white/10 hover:ring-white/20 hover:shadow-lg hover:shadow-black/40 transition-all">
       <div className="relative h-36 w-full bg-black/20">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={item.image} alt={item.title} className="h-full w-full object-cover object-center" />
+        <img
+          ref={imgRef}
+          src={item.image}
+          alt={item.title}
+          className="h-full w-full object-cover object-center"
+        />
         <div className="absolute left-2 top-2 flex gap-1">
           {item.tag === 'LIMITED' && <Tag text="LIMITED" tone="emerald" />}
           {item.tag === 'UGC' && <Tag text="UGC" tone="cyan" />}
@@ -42,11 +50,11 @@ export default function ProductCard({ item }: { item: Item }) {
 
         <div className="mt-2 flex items-center justify-between">
           <div className="text-sm font-semibold text-cyan-300">
-            {item.price === 'Free' ? 'Free' : (item.price ?? '-')}
+            {item.price === 'Free' ? 'Free' : item.price ?? '-'}
           </div>
           <button
             className="px-2 py-1 text-xs font-semibold rounded-md bg-white/10 text-white hover:bg-white/20 active:scale-[.98] transition"
-            onClick={() =>
+            onClick={(e) => {
               add({
                 id: item.id,
                 title: item.title,
@@ -54,7 +62,9 @@ export default function ProductCard({ item }: { item: Item }) {
                 price: parsePrice(item.price),
                 qty: 1,
               })
-            }
+              // ยิงอีเวนต์ให้ Header ทำเอฟเฟกต์
+              emitCartAdd({ sourceEl: imgRef.current })
+            }}
           >
             Add to cart
           </button>

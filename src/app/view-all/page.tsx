@@ -1,11 +1,13 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useCatalog } from '@/app/hooks/useCatalog'
 import type { Item } from '@/types/catalog'
 import FakeUrgency from '@/components/FakeUrgency'
 import { useCart } from '@/app/context/CartContext'
+
+const PAGE_SIZE = 24 // จำนวนที่โหลดเพิ่มต่อรอบ
 
 function parsePrice(s?: string | null) {
   if (!s || s === '-' || s.toLowerCase() === 'free') return 0
@@ -18,7 +20,9 @@ export default function ViewAllPage() {
   const [q, setQ] = useState('')
   const cat = params.get('cat') // 'roblox' | 'ugc' | null
   const { data, roblox, ugc } = useCatalog(q)
+  const { add } = useCart()
 
+  // รวมรายการตามหมวด / ค้นหา
   const items = useMemo<Item[]>(() => {
     if (cat === 'roblox') return roblox
     if (cat === 'ugc') return ugc
@@ -27,7 +31,49 @@ export default function ViewAllPage() {
     return [...r, ...u]
   }, [cat, data, roblox, ugc])
 
-  const { add } = useCart()
+  // ----- Infinite Scroll state -----
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const loaderRef = useRef<HTMLDivElement | null>(null)
+
+  // รีเซ็ตเมื่อเปลี่ยนหมวด/ผลลัพธ์ค้นหา
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE)
+  }, [cat, q, items.length])
+
+  const hasMore = visibleCount < items.length
+  const visibleItems = useMemo(
+    () => items.slice(0, visibleCount),
+    [items, visibleCount]
+  )
+
+  // IntersectionObserver: เห็น sentinel เมื่อไหร่ เพิ่ม visibleCount
+  useEffect(() => {
+    if (!hasMore) return
+    const el = loaderRef.current
+    if (!el) return
+
+    const onIntersect: IntersectionObserverCallback = (entries) => {
+      const entry = entries[0]
+      if (entry.isIntersecting && !isLoadingMore) {
+        setIsLoadingMore(true)
+        // หน่วงนิด (ฟีลกำลังโหลด) แล้วค่อยเพิ่ม
+        const t = setTimeout(() => {
+          setVisibleCount((c) => Math.min(c + PAGE_SIZE, items.length))
+          setIsLoadingMore(false)
+        }, 300)
+        return () => clearTimeout(t)
+      }
+    }
+
+    const io = new IntersectionObserver(onIntersect, {
+      root: null,
+      rootMargin: '0px 0px 400px 0px', // เห็นก่อนถึงจริงนิดหน่อย
+      threshold: 0.01,
+    })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [hasMore, isLoadingMore, items.length])
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-6">
@@ -52,8 +98,8 @@ export default function ViewAllPage() {
       </div>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-        {items.map((i) => (
-          <div key={i.id} className="rounded-xl bg-white/5 ring-1 ring-white/10 overflow-hidden">
+        {visibleItems.map((i) => (
+          <div key={i.id} className="overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={i.image} alt={i.title} className="h-40 w-full object-cover" />
             <div className="p-3">
@@ -82,7 +128,33 @@ export default function ViewAllPage() {
             </div>
           </div>
         ))}
+
+        {/* Skeleton โหลดเพิ่ม */}
+        {isLoadingMore &&
+          Array.from({ length: Math.min(PAGE_SIZE, items.length - visibleItems.length) }).map(
+            (_ , idx) => (
+              <div
+                key={`skeleton-${idx}`}
+                className="animate-pulse overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10"
+              >
+                <div className="h-40 w-full bg-white/10" />
+                <div className="p-3 space-y-2">
+                  <div className="h-4 w-3/4 bg-white/10 rounded" />
+                  <div className="h-3 w-1/2 bg-white/10 rounded" />
+                  <div className="h-8 w-full bg-white/10 rounded" />
+                </div>
+              </div>
+            )
+          )}
       </div>
+
+      {/* Sentinel สำหรับ IntersectionObserver */}
+      <div ref={loaderRef} className="h-10" />
+
+      {/* ข้อความท้ายถ้าหมดแล้ว */}
+      {!hasMore && items.length > 0 && (
+        <div className="py-6 text-center text-sm text-white/50">— สิ้นสุดรายการ —</div>
+      )}
     </main>
   )
 }

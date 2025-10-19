@@ -4,7 +4,7 @@ import { CartProvider } from '@/app/context/CartContext' // ✅ ตรวจใ�
 import Header from '@/components/Header'
 
 export const metadata: Metadata = {
-  title: 'PIXEL CATALOG',
+  title: 'Roblox Limited Shop',
   description: 'One-page shop • demo only',
 }
 

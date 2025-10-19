@@ -9,9 +9,15 @@ export const ItemSchema = z.object({
   title: z.string(),
   by: z.string(),
   tag: ItemTagEnum,
-  price: z.string().nullable().optional(), // "Free" หรือราคาต่าง ๆ
-  image: z.string() // path เช่น "/images/xxx.png"
-})
+  // เปลี่ยนจาก z.string() เป็น z.coerce.string() เพื่อให้เลข 1245 => "1245"
+  price: z.coerce.string().nullable().optional(),
+  image: z.string(),
+
+  // ฟิลด์เสริม (ไม่บังคับ)
+  currency: z.string().optional(),
+  displayPrice: z.string().optional(),
+}).passthrough() // เผื่ออนาคตมี key อื่น ๆ จะไม่ error
+
 export type Item = z.infer<typeof ItemSchema>
 
 export const CategorySchema = z.object({
