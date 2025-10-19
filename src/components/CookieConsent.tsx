@@ -4,6 +4,14 @@ import { useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { getCookie, setCookie } from '@/app/lib/cookie'
 
+// ---- Global window typings (ให้ TS รู้จัก gtag / dataLayer) ----
+declare global {
+  interface Window {
+    gtag?: (...args: any[]) => void
+    dataLayer?: any[]
+  }
+}
+
 type ConsentPrefs = {
   essential: boolean
   analytics: boolean
@@ -39,17 +47,15 @@ function parsePrefs(s: string | null): ConsentPrefs | null {
 function announceConsent(p: ConsentPrefs) {
   try {
     if (typeof window !== 'undefined') {
-      // @ts-ignore
-      if (typeof gtag === 'function') {
-        // @ts-ignore
-        gtag('consent', 'update', {
+      // ใช้ window.gtag เพื่อให้ TS มองเห็น
+      if (typeof window.gtag === 'function') {
+        window.gtag('consent', 'update', {
           analytics_storage: p.analytics ? 'granted' : 'denied',
           ad_storage: p.marketing ? 'granted' : 'denied',
         })
       }
-      // @ts-ignore
+
       if (Array.isArray(window.dataLayer)) {
-        // @ts-ignore
         window.dataLayer.push({ event: 'consent_update', consent: p })
       }
     }
@@ -59,7 +65,9 @@ function announceConsent(p: ConsentPrefs) {
 function savePrefs(p: ConsentPrefs) {
   const value = JSON.stringify(p)
   setCookie(COOKIE_KEY, value, 180)
-  try { localStorage.setItem(COOKIE_KEY, value) } catch {}
+  try {
+    localStorage.setItem(COOKIE_KEY, value)
+  } catch {}
   announceConsent(p)
 }
 
@@ -95,7 +103,7 @@ export default function CookieConsent({
   const [nagVisible, setNagVisible] = useState(false)
   const [hasConsent, setHasConsent] = useState(false)
 
-  const timerRef = useRef<number | null>(null)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const shownRef = useRef(false)
 
   // ล็อกสกอร์ลเมื่อเปิดแบนเนอร์ (soft block)
@@ -104,7 +112,9 @@ export default function CookieConsent({
     if (open) {
       const orig = document.documentElement.style.overflow
       document.documentElement.style.overflow = 'hidden'
-      return () => { document.documentElement.style.overflow = orig }
+      return () => {
+        document.documentElement.style.overflow = orig
+      }
     }
   }, [open, softBlock])
 
@@ -112,7 +122,11 @@ export default function CookieConsent({
   useEffect(() => {
     const fromCookie = parsePrefs(getCookie(COOKIE_KEY))
     const fromLS = (() => {
-      try { return parsePrefs(localStorage.getItem(COOKIE_KEY)) } catch { return null }
+      try {
+        return parsePrefs(localStorage.getItem(COOKIE_KEY))
+      } catch {
+        return null
+      }
     })()
     const picked = fromCookie ?? fromLS
 
@@ -128,7 +142,9 @@ export default function CookieConsent({
       try {
         const v = localStorage.getItem(VERSION_KEY)
         return v !== consentVersion
-      } catch { return false }
+      } catch {
+        return false
+      }
     })()
 
     const mustAskNow = askEveryVisit || !picked || shouldReaskByInterval || shouldReaskByVersion
@@ -154,7 +170,9 @@ export default function CookieConsent({
       window.addEventListener('mousemove', onMove, { once: true })
       const fallback = window.setTimeout(show, delayMs + 600)
       if (consentVersion) {
-        try { localStorage.setItem(VERSION_KEY, consentVersion) } catch {}
+        try {
+          localStorage.setItem(VERSION_KEY, consentVersion)
+        } catch {}
       }
       return () => {
         window.removeEventListener('scroll', onScroll)
@@ -173,22 +191,27 @@ export default function CookieConsent({
     if (!hasConsent) return
     setOpen(true)
   }, [reaskOnRouteChange, pathname, hasConsent])
-useEffect(() => {
-  function onOpen() {
-    setOpen(true)
-    setConfirmReject(false)
-    setNagVisible(false)
-  }
-  window.addEventListener('open-cookie-consent', onOpen as EventListener)
-  return () => window.removeEventListener('open-cookie-consent', onOpen as EventListener)
-}, [])
+
+  // เปิดด้วย custom event: window.dispatchEvent(new Event('open-cookie-consent'))
+  useEffect(() => {
+    function onOpen() {
+      setOpen(true)
+      setConfirmReject(false)
+      setNagVisible(false)
+    }
+    window.addEventListener('open-cookie-consent', onOpen as EventListener)
+    return () => window.removeEventListener('open-cookie-consent', onOpen as EventListener)
+  }, [])
+
   // ชิปเตือนเป็นระยะ ถ้าไม่ให้ consent
   useEffect(() => {
     if (!darkPattern || nagEveryMs <= 0) return
     if (hasConsent) return
     if (open) return
-    timerRef.current = window.setInterval(() => setNagVisible(true), nagEveryMs) as unknown as number
-    return () => { if (timerRef.current) clearInterval(timerRef.current) }
+    timerRef.current = setInterval(() => setNagVisible(true), nagEveryMs)
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
   }, [darkPattern, nagEveryMs, open, hasConsent])
 
   function doAcceptAll() {
@@ -247,7 +270,10 @@ useEffect(() => {
   if (!open && nagVisible && !hasConsent) {
     return (
       <button
-        onClick={() => { setOpen(true); setNagVisible(false) }}
+        onClick={() => {
+          setOpen(true)
+          setNagVisible(false)
+        }}
         className="fixed bottom-4 right-4 z-[1000] rounded-full bg-white text-zinc-900 px-4 py-2 text-sm shadow-lg ring-1 ring-black/10 hover:scale-105 transition"
         aria-label="Manage cookies"
       >
@@ -321,26 +347,28 @@ useEffect(() => {
             <div className="mt-4 grid gap-3">
               <ConsentToggle
                 title="คุกกี้ที่จำเป็น"
-                desc={darkPattern
-                  ? 'จำเป็นต่อฟีเจอร์หลัก เช่น ความปลอดภัย และประสบการณ์ที่ราบรื่น'
-                  : 'จำเป็นต่อการทำงานพื้นฐานของเว็บไซต์ (ปิดไม่ได้)'}
+                desc={
+                  darkPattern
+                    ? 'จำเป็นต่อฟีเจอร์หลัก เช่น ความปลอดภัย และประสบการณ์ที่ราบรื่น'
+                    : 'จำเป็นต่อการทำงานพื้นฐานของเว็บไซต์ (ปิดไม่ได้)'
+                }
                 checked={true}
                 disabled
                 onChange={() => {}}
               />
               <ConsentToggle
                 title={darkPattern ? 'คุกกี้วิเคราะห์ (แนะนำ)' : 'คุกกี้วิเคราะห์ (Analytics)'}
-                desc={darkPattern
-                  ? 'ช่วยให้เราเข้าใจสิ่งที่คุณชอบ เพื่อเสนอประสบการณ์ที่ดียิ่งขึ้น'
-                  : 'ช่วยให้เราเข้าใจการใช้งานเพื่อปรับปรุงเว็บไซต์'}
+                desc={
+                  darkPattern
+                    ? 'ช่วยให้เราเข้าใจสิ่งที่คุณชอบ เพื่อเสนอประสบการณ์ที่ดียิ่งขึ้น'
+                    : 'ช่วยให้เราเข้าใจการใช้งานเพื่อปรับปรุงเว็บไซต์'
+                }
                 checked={prefs.analytics}
                 onChange={(v) => setPrefs(p => ({ ...p, analytics: v }))}
               />
               <ConsentToggle
                 title={darkPattern ? 'คุกกี้การตลาด (ข้อเสนอเฉพาะคุณ)' : 'คุกกี้การตลาด (Marketing)'}
-                desc={darkPattern
-                  ? 'ให้เราแนะนำดีล/อีเวนต์ที่น่าจะถูกใจ—ไม่มีสแปม'
-                  : 'ใช้สำหรับการโฆษณา/รีมาร์เก็ตติ้ง'}
+                desc={darkPattern ? 'ให้เราแนะนำดีล/อีเวนต์ที่น่าจะถูกใจ—ไม่มีสแปม' : 'ใช้สำหรับการโฆษณา/รีมาร์เก็ตติ้ง'}
                 checked={prefs.marketing}
                 onChange={(v) => setPrefs(p => ({ ...p, marketing: v }))}
               />

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useCatalog } from '@/app/hooks/useCatalog'
 import type { Item } from '@/types/catalog'
@@ -15,10 +15,20 @@ function parsePrice(s?: string | null) {
   return Number.isFinite(n) ? n : 0
 }
 
+/** คอมโพเนนต์ “หน้า” ตัวหลัก — ไม่มีการเรียก useSearchParams เอง */
 export default function ViewAllPage() {
+  return (
+    <Suspense fallback={<div className="mx-auto max-w-7xl px-4 py-6 text-white/70">Loading…</div>}>
+      <ViewAllInner />
+    </Suspense>
+  )
+}
+
+/** คอมโพเนนต์ลูก ที่เรียก useSearchParams ได้ เพราะถูกห่อด้วย <Suspense> แล้ว */
+function ViewAllInner() {
   const params = useSearchParams()
   const [q, setQ] = useState('')
-  const cat = params.get('cat') // 'roblox' | 'ugc' | null
+  const cat = params.get('cat') as 'roblox' | 'ugc' | null // 'roblox' | 'ugc' | null
   const { data, roblox, ugc } = useCatalog(q)
   const { add } = useCart()
 
@@ -57,18 +67,17 @@ export default function ViewAllPage() {
       const entry = entries[0]
       if (entry.isIntersecting && !isLoadingMore) {
         setIsLoadingMore(true)
-        // หน่วงนิด (ฟีลกำลังโหลด) แล้วค่อยเพิ่ม
         const t = setTimeout(() => {
           setVisibleCount((c) => Math.min(c + PAGE_SIZE, items.length))
           setIsLoadingMore(false)
         }, 300)
-        return () => clearTimeout(t)
+        // หมายเหตุ: return ที่นี่ไม่มีผลกับ useEffect cleanup
       }
     }
 
     const io = new IntersectionObserver(onIntersect, {
       root: null,
-      rootMargin: '0px 0px 400px 0px', // เห็นก่อนถึงจริงนิดหน่อย
+      rootMargin: '0px 0px 400px 0px',
       threshold: 0.01,
     })
     io.observe(el)
@@ -100,7 +109,6 @@ export default function ViewAllPage() {
       <div className="mt-6 grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
         {visibleItems.map((i) => (
           <div key={i.id} className="overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={i.image} alt={i.title} className="h-40 w-full object-cover" />
             <div className="p-3">
               <div className="line-clamp-1 font-semibold text-white/90">{i.title}</div>
@@ -109,14 +117,14 @@ export default function ViewAllPage() {
               </div>
               <FakeUrgency id={i.id} />
               <div className="mt-2 flex items-center justify-between">
-                <div className="text-sm font-semibold text-cyan-300">{i.price ?? '-'}</div>
+                <div className="text-sm font-semibold text-cyan-300">{(i as any).price ?? '-'}</div>
                 <button
                   onClick={() =>
                     add({
                       id: i.id,
                       title: i.title,
                       image: i.image,
-                      price: parsePrice(i.price),
+                      price: parsePrice((i as any).price),
                       qty: 1,
                     })
                   }
@@ -138,10 +146,10 @@ export default function ViewAllPage() {
                 className="animate-pulse overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10"
               >
                 <div className="h-40 w-full bg-white/10" />
-                <div className="p-3 space-y-2">
-                  <div className="h-4 w-3/4 bg-white/10 rounded" />
-                  <div className="h-3 w-1/2 bg-white/10 rounded" />
-                  <div className="h-8 w-full bg-white/10 rounded" />
+                <div className="space-y-2 p-3">
+                  <div className="h-4 w-3/4 rounded bg-white/10" />
+                  <div className="h-3 w-1/2 rounded bg-white/10" />
+                  <div className="h-8 w-full rounded bg-white/10" />
                 </div>
               </div>
             )

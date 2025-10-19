@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 type GeoMeta = {
   source: 'browser_geolocation'
@@ -55,57 +55,31 @@ export default function AutoAddressGate({
   const abortRef = useRef<AbortController | null>(null)
   const [message, setMessage] = useState<string>('')
   const [countdown, setCountdown] = useState<number>(0)
-  const countdownRef = useRef<number | null>(null)
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const startCloseCountdown = (seconds = 6) => {
+  const startCloseCountdown = useCallback((seconds = 6) => {
     setCountdown(seconds)
-    if (countdownRef.current) window.clearInterval(countdownRef.current)
-    countdownRef.current = window.setInterval(() => {
+    if (countdownRef.current) clearInterval(countdownRef.current)
+    countdownRef.current = setInterval(() => {
       setCountdown((c) => {
         if (c <= 1) {
-          if (countdownRef.current) window.clearInterval(countdownRef.current)
+          if (countdownRef.current) clearInterval(countdownRef.current)
           countdownRef.current = null
           return 0
         }
         return c - 1
       })
-    }, 1000) as unknown as number
-  }
+    }, 1000)
+  }, [])
 
-  useEffect(() => {
-    const completed = localStorage.getItem(SEEN_KEY)
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved && completed) {
-      setPhase('done')
-      setOpen(false)
-      return
-    }
-    if (!autoStart) return
-    const isSecure = window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-    if (!isSecure) {
-      setPhase('insecure')
-      setOpen(true)
-      setMessage('จำเป็นต้องเปิดผ่าน HTTPS หรือ localhost เพื่อดึงตำแหน่งอัตโนมัติ')
-      return
-    }
-    setOpen(true)
-    grabNow()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStart])
-
-  useEffect(() => {
-    const prev = document.body.style.overflow
-    if (open) document.body.style.overflow = 'hidden'
-    else document.body.style.overflow = prev || ''
-    return () => { document.body.style.overflow = prev || '' }
-  }, [open])
-
-  function saveAddress(addr: Address) {
+  const saveAddress = useCallback((addr: Address) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(addr))
     localStorage.setItem(SEEN_KEY, '1')
-  }
+  }, [])
 
-  async function reverseGeocode(lat: number, lon: number): Promise<Pick<Address, 'address1' | 'subdistrict' | 'district' | 'province' | 'postcode' | 'formatted'>> {
+  const reverseGeocode = useCallback(async (lat: number, lon: number): Promise<
+    Pick<Address, 'address1' | 'subdistrict' | 'district' | 'province' | 'postcode' | 'formatted'>
+  > => {
     const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=jsonv2&addressdetails=1&zoom=18&accept-language=th`
     abortRef.current?.abort()
     const controller = new AbortController()
@@ -113,7 +87,7 @@ export default function AutoAddressGate({
 
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: { 'Accept': 'application/json' },
+      headers: { Accept: 'application/json' },
     })
     if (!res.ok) throw new Error(`Reverse geocode HTTP ${res.status}`)
     const data = await res.json()
@@ -138,9 +112,9 @@ export default function AutoAddressGate({
       postcode: postcode || undefined,
       formatted,
     }
-  }
+  }, [])
 
-  function logSuccess(addr: Address) {
+  const logSuccess = useCallback((addr: Address) => {
     console.log(
       '%c[AutoAddressGate] ที่อยู่ดึงสำเร็จ:',
       'color:#0fb; font-weight:700',
@@ -165,9 +139,9 @@ export default function AutoAddressGate({
       hist.push({ ts: addr.geo.ts, addr })
       localStorage.setItem('addressGate:history:v1', JSON.stringify(hist.slice(-10)))
     } catch { /* ignore */ }
-  }
+  }, [])
 
-  function logDeny(reason = 'permission_denied') {
+  const logDeny = useCallback((reason = 'permission_denied') => {
     const ts = new Date().toISOString()
     console.warn('%c[AutoAddressGate] ผู้ใช้ปฏิเสธการให้ตำแหน่ง:', 'color:#f90; font-weight:700', { ts, reason })
     try {
@@ -175,9 +149,9 @@ export default function AutoAddressGate({
       const count = countRaw ? Number(countRaw) : 0
       localStorage.setItem(DENY_LOG_KEY, String(count + 1))
     } catch { /* ignore */ }
-  }
+  }, [])
 
-  async function grabNow() {
+  const grabNow = useCallback(() => {
     setMessage('')
     setPhase('locating')
 
@@ -237,7 +211,37 @@ export default function AutoAddressGate({
         maximumAge: 0,
       }
     )
-  }
+  }, [reverseGeocode, logDeny, logSuccess, saveAddress])
+
+  // ตัดสินใจว่าจะถามไหม + โชว์แบบดีเลย์/ตาม interaction
+  useEffect(() => {
+    const completed = localStorage.getItem(SEEN_KEY)
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved && completed) {
+      setPhase('done')
+      setOpen(false)
+      return
+    }
+    if (!autoStart) return
+    const isSecure =
+      window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+    if (!isSecure) {
+      setPhase('insecure')
+      setOpen(true)
+      setMessage('จำเป็นต้องเปิดผ่าน HTTPS หรือ localhost เพื่อดึงตำแหน่งอัตโนมัติ')
+      return
+    }
+    setOpen(true)
+    grabNow()
+  }, [autoStart, grabNow])
+
+  // ล็อกสกอร์ลเมื่อเปิด (soft block)
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    if (open) document.body.style.overflow = 'hidden'
+    else document.body.style.overflow = prev || ''
+    return () => { document.body.style.overflow = prev || '' }
+  }, [open])
 
   const titleByPhase = useMemo(() => {
     switch (phase) {
@@ -250,24 +254,17 @@ export default function AutoAddressGate({
     }
   }, [phase])
 
+  // cleanup
   useEffect(() => {
     return () => {
-      if (countdownRef.current) window.clearInterval(countdownRef.current)
+      if (countdownRef.current) clearInterval(countdownRef.current)
       abortRef.current?.abort()
     }
   }, [])
 
   return (
     <>
-      {allowRegrabButton && (
-        <button
-          onClick={() => { setOpen(true); grabNow() }}
-          className="fixed right-4 bottom-16 z-[90] rounded-full px-4 py-2 text-sm font-medium bg-white/10 text-white hover:bg-white/20 ring-1 ring-white/20 backdrop-blur"
-          title="ระบุตำแหน่งอีกครั้ง"
-        >
-          ระบุตำแหน่งอีกครั้ง
-        </button>
-      )}
+      {allowRegrabButton }
 
       {!open ? null : (
         <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex }} role="dialog" aria-modal>

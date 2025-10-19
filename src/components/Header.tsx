@@ -70,7 +70,7 @@ export default function Header() {
                         className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 transition"
                         onClick={() => setQuery('')}
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
+             
                         <img src={item.image} alt={item.title} className="w-6 h-6 rounded object-cover" />
                         <span className="text-sm text-white/90 line-clamp-1">{item.title}</span>
                       </Link>

@@ -2,39 +2,41 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useCart } from '@/app/context/CartContext'
 import CartItemRow from '@/components/CartItemRow'
 
 type ShippingInfo = {
   fullName: string
-  email: string
   phone: string
-  address1: string
-  address2: string
-  district: string
-  province: string
-  postcode: string
+  email?: string
+  address1?: string
+  address2?: string
+  district?: string
+  province?: string
+  postcode?: string
   note?: string
 }
 
 export default function CartPage() {
   // ต้องมี add(...) ใน CartContext เพื่อรองรับเพิ่มโปรโมชันลงตะกร้า
   const { state, subtotal, clear, add } = useCart() as any
+  const router = useRouter()
 
-  // --- ค่าธรรมเนียม/ภาษี ---
+  // --- ค่าธรรมเนียม/ภาษี (เดโม) ---
   const shipping = state.lines.length ? 0 : 0
   const websiteFee = subtotal * 0.1
   const systemFee = subtotal * 0.05
   const teaFee = 15
   const maintenanceFee = 9.99
   const vat = (subtotal + websiteFee + systemFee) * 0.07
-  const total = subtotal + shipping + websiteFee + systemFee + teaFee + maintenanceFee + vat
+  const total = Math.max(0, subtotal + shipping + websiteFee + systemFee + teaFee + maintenanceFee + vat)
 
-  // --- Address state + บังคับ dialog ---
+  // --- Address state + Dialog ---
   const [info, setInfo] = useState<ShippingInfo>({
     fullName: '',
-    email: '',
     phone: '',
+    email: '',
     address1: '',
     address2: '',
     district: '',
@@ -47,17 +49,15 @@ export default function CartPage() {
   const [promoOpen, setPromoOpen] = useState(false)
 
   useEffect(() => {
-    // ถ้ามีสินค้าและยังไม่บันทึกที่อยู่ => บังคับเปิด Dialog ที่อยู่
+    // ถ้ามีสินค้าและยังไม่เคยเปิด dialog มาก่อน ให้แนะให้กรอก (ไม่บังคับ)
     if (state?.lines?.length > 0 && !saved) {
       setAddressOpen(true)
     }
   }, [state?.lines?.length, saved])
 
-  // เปิดโปรโมชันทันทีหลังบันทึกที่อยู่
+  // เปิดโปรโมชันทันทีหลังบันทึกที่อยู่ (เพื่อ upsell)
   useEffect(() => {
-    if (saved) {
-      setPromoOpen(true)
-    }
+    if (saved) setPromoOpen(true)
   }, [saved])
 
   // --- โปรโมชัน mock ---
@@ -79,18 +79,10 @@ export default function CartPage() {
     }
   }
 
-  // --- Utils ตรวจฟอร์ม ---
-  function isEmailValid(email: string) { return /^\S+@\S+\.\S+$/.test(email) }
-  function isPostcodeValid(p: string) { return /^[0-9]{5}$/.test(p || '') }
-  function isPhoneValid(p: string) { return /^[0-9+\-()\s]{8,}$/.test(p || '') }
-  const canSave =
-    info.fullName.trim() &&
-    isEmailValid(info.email) &&
-    isPhoneValid(info.phone) &&
-    info.address1.trim() &&
-    info.district.trim() &&
-    info.province.trim() &&
-    isPostcodeValid(info.postcode)
+  // --- Utils ตรวจฟอร์มแบบเบา ๆ ---
+  function isPhoneReasonable(p: string) { return !!(p && p.replace(/\D/g, '').length >= 8) }
+  // ลดเกณฑ์เหลือ: ต้องมีชื่อ และเบอร์ "พอสมควร" เท่านั้น
+  const canSave = !!(info.fullName.trim() && isPhoneReasonable(info.phone))
 
   function handleChange<K extends keyof ShippingInfo>(key: K, val: ShippingInfo[K]) {
     setInfo((s) => ({ ...s, [key]: val }))
@@ -101,6 +93,25 @@ export default function CartPage() {
     if (!canSave) return
     setSaved(true)
     setAddressOpen(false)
+    // เก็บไว้อ่านต่อที่หน้า checkout (ไม่ sensitive / เดโม)
+    try {
+      sessionStorage.setItem('demo_shipping_info', JSON.stringify(info))
+    } catch {}
+  }
+
+  function goCheckout() {
+    // ถ้ายังไม่เคยกดบันทึกที่อยู่ จะพาไปต่อได้เลย (โหมดเดโม) — แต่จะแนะนำให้บันทึกก่อน
+    if (!saved && !canSave) {
+      setAddressOpen(true)
+      return
+    }
+    // บันทึกอีกรอบให้ชัวร์
+    if (canSave) {
+      try { sessionStorage.setItem('demo_shipping_info', JSON.stringify(info)) } catch {}
+    }
+    // ส่งยอดรวมไปหน้า checkout
+    const amount = Math.round(total * 100) / 100
+    router.push(`/checkout?amount=${encodeURIComponent(amount.toFixed(2))}`)
   }
 
   return (
@@ -144,13 +155,14 @@ export default function CartPage() {
                 >
                   🎁 โปรโมชันแนะนำ
                 </button>
+
                 <button
-                  className="w-full rounded-lg bg-emerald-500/90 px-4 py-2 font-bold text-black hover:bg-emerald-400 disabled:opacity-50"
-                  disabled={!saved}
-                  onClick={() => alert('ชำระเงิน (mock) สำเร็จ!')}
+                  className="w-full rounded-lg bg-emerald-500/90 px-4 py-2 font-bold text-black hover:bg-emerald-400"
+                  onClick={goCheckout}
                 >
-                  ชำระเงิน (mock)
+                  ชำระเงิน
                 </button>
+
                 <button onClick={() => clear()} className="w-full rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/20">
                   ล้างตะกร้า
                 </button>
@@ -159,60 +171,68 @@ export default function CartPage() {
                 </p>
                 {!saved && (
                   <p className="text-[11px] text-amber-300">
-                    * กรุณากรอกที่อยู่ในแบบฟอร์ม (Dialog) ให้ครบเพื่อเปิดใช้งานปุ่มชำระเงิน
+                    * แนะนำให้บันทึกที่อยู่ก่อน เพื่อความถูกต้องของคำสั่งซื้อ (เดโม)
                   </p>
                 )}
               </div>
             </div>
 
-            {/* ปุ่มเปิด Address Dialog เผื่อผู้ใช้ปิดไปแล้วอยากแก้ไข */}
+            {/* ปุ่มเปิด Address Dialog */}
             <button
               onClick={() => setAddressOpen(true)}
               className="w-full rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/20"
             >
-              แก้ไขที่อยู่จัดส่ง
+              กรอก/แก้ไขที่อยู่จัดส่ง
             </button>
           </aside>
         </div>
       )}
 
-      {/* Address Dialog (บังคับ) */}
+      {/* Address Dialog (ไม่บังคับแล้ว — ปิดได้) */}
       {addressOpen && (
-        <ModalBackdrop blockInteraction>
+        <ModalBackdrop onClose={() => setAddressOpen(false)}>
           <div className="relative w-full max-w-2xl rounded-2xl bg-[#0b1220] ring-1 ring-white/10 shadow-xl">
             <div className="px-4 py-3 border-b border-white/10">
               <h3 className="text-lg font-bold">กรอกที่อยู่สำหรับจัดส่ง</h3>
-              <p className="text-xs text-white/60 mt-1">กรอกให้ครบถ้วนเพื่อเปิดใช้งานการชำระเงิน (mock)</p>
+              <p className="text-xs text-white/60 mt-1">เดโม: ต้องมีเพียง <b>ชื่อ-นามสกุล</b> และ <b>เบอร์ติดต่อ</b></p>
             </div>
 
             <div className="p-4 grid grid-cols-1 gap-3">
-              <Input label="ชื่อ-นามสกุล" value={info.fullName} onChange={(v) => handleChange('fullName', v)} />
+              <Input label="ชื่อ-นามสกุล *" value={info.fullName} onChange={(v) => handleChange('fullName', v)} />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Input label="อีเมล" value={info.email} onChange={(v) => handleChange('email', v)} error={!!info.email && !isEmailValid(info.email)} helper="เราจะส่งสรุปคำสั่งซื้อ (mock) ไปที่อีเมลนี้" />
-                <Input label="เบอร์ติดต่อ" value={info.phone} onChange={(v) => handleChange('phone', v)} error={!!info.phone && !isPhoneValid(info.phone)} />
+                <Input label="เบอร์ติดต่อ *" value={info.phone} onChange={(v) => handleChange('phone', v)} />
+                <Input label="อีเมล (ไม่บังคับ)" value={info.email || ''} onChange={(v) => handleChange('email', v)} helper="เราจะส่งสรุปคำสั่งซื้อ (mock) ไปที่อีเมลนี้ หากกรอก" />
               </div>
-              <Input label="ที่อยู่ (บรรทัดที่ 1)" value={info.address1} onChange={(v) => handleChange('address1', v)} />
-              <Input label="ที่อยู่ (บรรทัดที่ 2) — ไม่บังคับ" value={info.address2} onChange={(v) => handleChange('address2', v)} />
+              <Input label="ที่อยู่ (บรรทัดที่ 1) — ไม่บังคับ" value={info.address1 || ''} onChange={(v) => handleChange('address1', v)} />
+              <Input label="ที่อยู่ (บรรทัดที่ 2) — ไม่บังคับ" value={info.address2 || ''} onChange={(v) => handleChange('address2', v)} />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <Input label="แขวง/ตำบล" value={info.district} onChange={(v) => handleChange('district', v)} />
-                <Input label="เขต/อำเภอ / จังหวัด" value={info.province} onChange={(v) => handleChange('province', v)} />
-                <Input label="รหัสไปรษณีย์" value={info.postcode} onChange={(v) => handleChange('postcode', v)} error={!!info.postcode && !isPostcodeValid(info.postcode)} />
+                <Input label="แขวง/ตำบล — ไม่บังคับ" value={info.district || ''} onChange={(v) => handleChange('district', v)} />
+                <Input label="เขต/อำเภอ / จังหวัด — ไม่บังคับ" value={info.province || ''} onChange={(v) => handleChange('province', v)} />
+                <Input label="รหัสไปรษณีย์ — ไม่บังคับ" value={info.postcode || ''} onChange={(v) => handleChange('postcode', v)} />
               </div>
               <TextArea label="โน้ตถึงไรเดอร์ (ไม่บังคับ)" value={info.note || ''} onChange={(v) => handleChange('note', v)} />
 
               <div className="mt-1 flex items-center gap-2">
                 <button
-                  className="rounded-lg bg-cyan-500/90 px-4 py-2 font-bold text-black hover:bg-cyan-400 disabled:opacity-50"
+                  className={`rounded-lg px-4 py-2 font-bold text-black disabled:opacity-50 ${
+                    canSave ? 'bg-cyan-500/90 hover:bg-cyan-400' : 'bg-white/10 text-white'
+                  }`}
                   onClick={saveShippingInfo}
                   disabled={!canSave}
                 >
                   บันทึกที่อยู่
                 </button>
-                {!canSave && <span className="text-xs text-white/60">กรอกข้อมูลที่จำเป็นให้ครบก่อน</span>}
+
+                <button
+                  className="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/20"
+                  onClick={() => setAddressOpen(false)}
+                >
+                  ปิด
+                </button>
+
+                {!canSave && <span className="text-xs text-white/60">กรอกชื่อและเบอร์ให้ครบก่อน</span>}
               </div>
             </div>
-
-            {/* ไม่มีปุ่มปิด เพื่อ “บังคับ” ให้กรอก/บันทึกก่อน */}
           </div>
         </ModalBackdrop>
       )}
@@ -229,7 +249,6 @@ export default function CartPage() {
               {promoItems.map((it) => (
                 <div key={it.id} className="rounded-xl overflow-hidden bg-white/5 ring-1 ring-white/10">
                   <div className="aspect-square overflow-hidden bg-black/20">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={it.image} alt={it.title} className="w-full h-full object-cover" />
                   </div>
                   <div className="p-3">
@@ -261,17 +280,15 @@ export default function CartPage() {
 function ModalBackdrop({
   children,
   onClose,
-  blockInteraction,
 }: {
   children: React.ReactNode
   onClose?: () => void
-  blockInteraction?: boolean
 }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center p-4">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={() => !blockInteraction && onClose?.()}
+        onClick={() => onClose?.()}
       />
       <div className="relative">{children}</div>
     </div>
@@ -307,13 +324,11 @@ function Input({
   label,
   value,
   onChange,
-  error,
   helper,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
-  error?: boolean
   helper?: string
 }) {
   return (
@@ -322,12 +337,9 @@ function Input({
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`w-full rounded-lg bg-white/5 px-3 py-2 text-sm ring-1 focus:outline-none ${
-          error ? 'ring-red-500/60' : 'ring-white/10 focus:ring-cyan-400/60'
-        }`}
+        className="w-full rounded-lg bg-white/5 px-3 py-2 text-sm ring-1 ring-white/10 focus:outline-none focus:ring-cyan-400/60"
       />
       {helper && <div className="text-[11px] text-white/50 mt-1">{helper}</div>}
-      {error && <div className="text-[11px] text-red-400 mt-1">กรุณากรอกข้อมูลให้ถูกต้อง</div>}
     </label>
   )
 }

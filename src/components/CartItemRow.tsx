@@ -8,7 +8,7 @@ export default function CartItemRow({ line }: { line: CartLine }) {
   return (
     <div className="flex items-center gap-3 py-3">
       <div className="h-16 w-16 overflow-hidden rounded-lg ring-1 ring-white/10 bg-black/30">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+
         <img src={line.image} alt="" className="h-full w-full object-cover" />
       </div>
 

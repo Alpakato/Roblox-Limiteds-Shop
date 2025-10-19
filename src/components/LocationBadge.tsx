@@ -40,45 +40,45 @@ function transportLabel(t?: Transport) {
 function migrateIfNeeded(raw: string): Saved {
   let obj: any
   try { obj = JSON.parse(raw) } catch { return {} as Saved }
-
-  // เติมฟิลด์ที่อาจขาดจากรุ่นเก่า
-  if (!obj.geo) {
-    obj.geo = {
-      source: 'browser_geolocation',
-      accuracyM: undefined,
-      inferredTransport: 'coarse',
-      ts: new Date().toISOString(),
-    }
-  } else {
-    obj.geo.source ??= 'browser_geolocation'
-    obj.geo.inferredTransport ??= 'coarse'
-    obj.geo.ts ??= new Date().toISOString()
-  }
+  if (!obj.geo) obj.geo = { source: 'browser_geolocation', inferredTransport: 'coarse', ts: new Date().toISOString() }
   if (!obj.geocoder) obj.geocoder = { provider: 'nominatim' }
-  if (typeof obj.geocoder.provider === 'undefined') obj.geocoder.provider = 'nominatim'
-
-  // เขียนกลับเพื่อให้ครั้งต่อ ๆ ไปไม่ต้อง migrate แล้ว
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)) } catch {}
   return obj as Saved
 }
 
 export default function LocationBadge() {
   const [data, setData] = useState<Saved | null>(null)
+  const [minimized, setMinimized] = useState(false)
+  const [isDesktop, setIsDesktop] = useState(false)
 
+  // 1) ตรวจขนาดหน้าจอ (SSR-safe) — ไม่ทำให้เกิดการสลับลำดับ Hooks
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia('(min-width: 768px)')
+    const apply = () => setIsDesktop(mq.matches)
+    apply()
+    mq.addEventListener?.('change', apply)
+    return () => mq.removeEventListener?.('change', apply)
+  }, [])
+
+  // 2) โหลด/ติดตามข้อมูลที่ localStorage — อยู่ก่อน return เสมอ (ไม่ผิดกฎ Hooks)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!isDesktop) return // บนมือถือไม่ต้องทำอะไร
+
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) setData(migrateIfNeeded(raw))
-
       const onStorage = (e: StorageEvent) => {
-        if (e.key === STORAGE_KEY && e.newValue) {
-          setData(migrateIfNeeded(e.newValue))
-        }
+        if (e.key === STORAGE_KEY && e.newValue) setData(migrateIfNeeded(e.newValue))
       }
       window.addEventListener('storage', onStorage)
       return () => window.removeEventListener('storage', onStorage)
-    } catch { /* ignore */ }
-  }, [])
+    } catch {}
+  }, [isDesktop])
+
+  // ไม่ใช่เดสก์ท็อป → ไม่เรนเดอร์อะไร
+  if (!isDesktop) return null
 
   if (!data) return null
 
@@ -88,40 +88,61 @@ export default function LocationBadge() {
       .filter(Boolean)
       .join(', ')
 
-  const latOk = typeof data.lat === 'number' && Number.isFinite(data.lat)
-  const lonOk = typeof data.lon === 'number' && Number.isFinite(data.lon)
-  const acc =
-    typeof data.geo?.accuracyM === 'number' && Number.isFinite(data.geo?.accuracyM!)
-      ? Math.round(data.geo!.accuracyM!)
-      : undefined
+  const latStr = typeof data.lat === 'number' ? data.lat.toFixed(5) : '—'
+  const lonStr = typeof data.lon === 'number' ? data.lon.toFixed(5) : '—'
+  const accStr = typeof data.geo?.accuracyM === 'number' ? Math.round(data.geo.accuracyM) : '—'
+  const sourceStr = data.geo?.source ?? 'unknown'
+  const transportStr = transportLabel(data.geo?.inferredTransport)
+  const providerStr = data.geocoder?.provider ?? 'unknown'
+  const tsStr = data.geo?.ts ? new Date(data.geo.ts).toLocaleString() : '—'
+
+  const cardStyle =
+    'fixed bottom-4 left-4 z-[95] backdrop-blur-xl bg-white/10 border border-white/20 text-white shadow-lg ' +
+    'rounded-2xl p-3 transition-all duration-300 hover:bg-white/15'
+
+  if (minimized) {
+    return (
+      <button
+        className={`${cardStyle} px-3 py-2 flex items-center gap-2 text-sm`}
+        onClick={() => setMinimized(false)}
+      >
+        📍 <span>{shortenAddress(line) || '—'}</span>
+      </button>
+    )
+  }
 
   return (
-    <div className="fixed top-4 right-4 z-[95] max-w-[90vw] md:max-w-sm rounded-xl bg-white/10 text-white backdrop-blur ring-1 ring-white/15 shadow-lg p-3">
-      <div className="text-xs uppercase tracking-wide text-white/60">ตำแหน่งปัจจุบัน</div>
-      <div className="mt-1 text-sm font-medium">{shortenAddress(line) || '—'}</div>
+    <div className={`${cardStyle} max-w-[90vw] md:max-w-sm`}>
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-xs uppercase tracking-wide text-white/60">
+          ตำแหน่งปัจจุบัน
+        </div>
+        <button
+          className="text-xs px-2 py-0.5 rounded bg-white/15 hover:bg-white/25"
+          onClick={() => setMinimized(true)}
+        >
+          ย่อ
+        </button>
+      </div>
+
+      <div className="text-sm font-medium">{shortenAddress(line) || '—'}</div>
+
+      <div className="mt-1 text-[11px] text-white/80">
+        📍 {latStr}, {lonStr} · 🎯 ±{accStr} m
+      </div>
 
       <div className="mt-1 text-[11px] text-white/70">
-        📍 {latOk ? data.lat!.toFixed(5) : '—'}, {lonOk ? data.lon!.toFixed(5) : '—'}
-        {' '}· 🎯 ±{typeof acc === 'number' ? acc : '—'}m
+        แหล่งที่มา: {sourceStr} ({transportStr}) · geocoder: {providerStr}
       </div>
 
-      <div className="mt-1 text-[11px] text-white/60">
-        แหล่งที่มา: {data.geo?.source ?? 'unknown'} ({transportLabel(data.geo?.inferredTransport)})
-        {' '}· geocoder: {data.geocoder?.provider ?? 'unknown'}
-      </div>
-
-      <div className="mt-1 text-[11px] text-white/50">
-        อัปเดตล่าสุด: {data.geo?.ts ? new Date(data.geo.ts).toLocaleString() : '—'}
-      </div>
+      <div className="mt-1 text-[11px] text-white/60">อัปเดตล่าสุด: {tsStr}</div>
 
       <div className="mt-2 flex gap-2">
         <button
           className="text-xs px-2 py-1 rounded bg-white/15 hover:bg-white/25"
           onClick={() => {
-            try {
-              localStorage.removeItem(STORAGE_KEY)
-              setData(null)
-            } catch {}
+            try { localStorage.removeItem(STORAGE_KEY) } catch {}
+            setData(null)
           }}
         >
           ล้างข้อมูล
