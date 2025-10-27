@@ -1,3 +1,4 @@
+// components/ProductCard.tsx
 'use client'
 
 import { useMemo, useRef } from 'react'
@@ -5,6 +6,7 @@ import { Item } from '@/types/catalog'
 import { useCart } from '@/app/context/CartContext'
 import FakeUrgency from '@/components/FakeUrgency'
 import { emitCartAdd } from '@/app/lib/flyToCart'
+import { useRouter } from 'next/navigation'
 
 const Tag = ({ text, tone = 'emerald' }: { text: string; tone?: 'emerald' | 'cyan' }) => {
   const toneMap: Record<string, string> = {
@@ -37,8 +39,8 @@ export default function ProductCard({ item }: { item: Item }) {
   const { add } = useCart()
   const imgRef = useRef<HTMLImageElement | null>(null)
   const basePrice = parsePrice(item.price)
+  const router = useRouter()
 
-  // Promo ลดราคาสุ่ม
   const promo = useMemo(() => {
     if (basePrice <= 0) return null
     const h = stableHash(item.id)
@@ -54,22 +56,39 @@ export default function ProductCard({ item }: { item: Item }) {
 
   const payPrice = promo?.discounted ?? basePrice
 
-function num(v: unknown): number {
-  if (typeof v === 'number') return v;
-  if (typeof v === 'string') {
-    const n = Number(v.replace(/[^0-9.]/g, ''));
-    return Number.isFinite(n) ? n : 0;
+  function num(v: unknown): number {
+    if (typeof v === 'number') return v
+    if (typeof v === 'string') {
+      const n = Number(v.replace(/[^0-9.]/g, ''))
+      return Number.isFinite(n) ? n : 0
+    }
+    return 0
   }
-  return 0;
-}
 
-const hasDiscount =
-  !!item.discountPct ||
-  (
-    item.priceBefore != null &&
-    num(String(item.price)) < num(String(item.priceBefore))
-  ) ||
-  (Array.isArray((item as any).badges) && (item as any).badges.includes('SALE'));
+  const hasDiscount =
+    !!item.discountPct ||
+    (
+      (item as any).priceBefore != null &&
+      num(String(item.price)) < num(String((item as any).priceBefore))
+    ) ||
+    (Array.isArray((item as any).badges) && (item as any).badges.includes('SALE'))
+
+  // === ไปหน้า Checkout ทันที พร้อมพารามิเตอร์สินค้า ===
+  const goCheckoutNow = () => {
+    const params = new URLSearchParams({
+      id: item.id,
+      name: item.title,
+      price: String(payPrice),
+      currency: 'THB',             // เปลี่ยนได้ตามจริง
+      qty: '1',                    // ให้ผู้ใช้แก้ทีหลังได้ หรือทำ UI เลือกจำนวน
+      image: item.image || '',
+      description: item.by ? `By ${item.by}` : '',
+      // model, stock ใส่เพิ่มได้ถ้ามี
+    })
+    // ถ้าอยากยิงแอนิเมชันบินเข้าตะกร้าก่อนก็ยังทำได้ (optional)
+    emitCartAdd({ sourceEl: imgRef.current })
+    router.push(`/checkout?${params.toString()}`)
+  }
 
   return (
     <div
@@ -82,9 +101,7 @@ const hasDiscount =
         h-[360px]
       "
     >
-      {/* inner */}
       <div className="rounded-2xl flex h-full flex-col bg-black/30 backdrop-blur-xl ring-1 ring-white/10 overflow-hidden">
-        {/* รูปสินค้า */}
         <div className="relative h-40 w-full overflow-hidden">
           <img
             ref={imgRef}
@@ -104,9 +121,7 @@ const hasDiscount =
           )}
         </div>
 
-        {/* เนื้อหา */}
         <div className="flex flex-1 flex-col p-3">
-          {/* ชื่อ/ผู้ขาย + pill */}
           <div className="flex flex-col">
             <div className="h-5 leading-5 font-semibold text-white/90 overflow-hidden text-ellipsis whitespace-nowrap">
               {item.title}
@@ -121,17 +136,11 @@ const hasDiscount =
 
           <div className="flex-1" />
 
-          {/* ราคา + ปุ่ม (จัด space คงที่) */}
           <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-3">
-            {/* กล่องราคาคงที่สองบรรทัด */}
             <div className="h-11 flex flex-col justify-end [font-variant-numeric:tabular-nums]">
               {basePrice === 0 ? (
                 <>
-                  {/* บรรทัดบน (placeholder) */}
-                  <div className="text-[11px] leading-tight text-white/50 line-through invisible select-none">
-                    -
-                  </div>
-                  {/* บรรทัดล่าง (จริง) */}
+                  <div className="text-[11px] leading-tight text-white/50 line-through invisible select-none">-</div>
                   <div className="text-base font-extrabold tracking-tight text-cyan-300 leading-tight">
                     Free
                   </div>
@@ -142,16 +151,14 @@ const hasDiscount =
                     {item.price ?? '-'}
                   </div>
                   <div className="text-base font-extrabold tracking-tight text-cyan-300 leading-tight">
-                    {promo.discounted.toLocaleString()}
+                    {payPrice.toLocaleString()}
                   </div>
                 </>
               ) : (
                 <>
-                  {/* บรรทัดบน (placeholder) */}
                   <div className="text-[11px] leading-tight text-white/50 line-through invisible select-none">
                     {item.price ?? '-'}
                   </div>
-                  {/* บรรทัดล่าง (จริง) */}
                   <div className="text-base font-semibold text-cyan-300 leading-tight">
                     {item.price ?? '-'}
                   </div>
@@ -166,17 +173,13 @@ const hasDiscount =
                 ring-1 ring-white/15
                 transition
               "
-              aria-label={`Add ${item.title} to cart`}
-              onClick={() => {
-                add({ id: item.id, title: item.title, image: item.image, price: payPrice, qty: 1 })
-                emitCartAdd({ sourceEl: imgRef.current })
-              }}
+              aria-label={`Checkout ${item.title} now`}
+              onClick={goCheckoutNow}
             >
-              Add to cart
+              ซื้อทันที
             </button>
           </div>
 
-          {/* เวลาโปรฯ (กันพื้นที่ไว้คงที่) */}
           <div className="mt-2 h-4 text-[10px]">
             {promo ? (
               <span className="text-emerald-300/90">

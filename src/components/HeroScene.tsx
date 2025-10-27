@@ -30,15 +30,15 @@ function FullscreenGradient({
   const matRef = useRef<THREE.ShaderMaterial>(null!)
   const { viewport, size } = useThree()
 
-  // โทน Dark Roblox Duo: แดงเข้ม + น้ำเงินเข้ม (มี accent น้ำเงินสว่างนิด ๆ)
+  // Roblox-ish dark duo palette
   const palette = useMemo(
     () => [
-      new THREE.Color('#991B1B'), // dark red
-      new THREE.Color('#DC2626'), // bright red
-      new THREE.Color('#1E3A8A'), // navy blue
-      new THREE.Color('#2563EB'), // royal blue
-      new THREE.Color('#4C1D95'), // deep indigo (ผสมแดง-น้ำเงิน)
-      new THREE.Color('#3B82F6'), // accent blue
+      new THREE.Color('#991B1B'),
+      new THREE.Color('#DC2626'),
+      new THREE.Color('#1E3A8A'),
+      new THREE.Color('#2563EB'),
+      new THREE.Color('#4C1D95'),
+      new THREE.Color('#3B82F6'),
     ],
     []
   )
@@ -67,7 +67,8 @@ function FullscreenGradient({
     `
 
     const fragment = /* glsl */`
-      precision mediump float;
+      // ใช้ highp เพิ่มเสถียรภาพบนอุปกรณ์/เบราว์เซอร์บางตัว
+      precision highp float;
 
       varying vec2 vUv;
 
@@ -99,38 +100,27 @@ function FullscreenGradient({
       }
       mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
 
-      // 1) soft circle
       float softCircle(vec2 uv, vec2 c, float r, float s) {
         float d = distance(uv, c);
         return smoothstep(r, r - s, d);
       }
-
-      // 2) soft superellipse (L^p norm) + anisotropy + rotation
       float softSuperellipse(vec2 uv, vec2 c, float rx, float ry, float p, float s, float angle) {
         vec2 d = (uv - c) * rot(-angle);
         float lp = pow(abs(d.x)/rx, p) + pow(abs(d.y)/ry, p);
         float f  = pow(lp, 1.0/p);
         return smoothstep(1.0, 1.0 - s, f);
       }
-
-      // 3) soft diamond (L^1 norm) + anisotropy + rotation
       float softDiamond(vec2 uv, vec2 c, float rx, float ry, float s, float angle) {
         vec2 d = (uv - c) * rot(-angle);
         float f = abs(d.x)/rx + abs(d.y)/ry;
         return smoothstep(1.0, 1.0 - s, f);
       }
-
-      // 4) soft capsule (ระยะจากแกน x หมุน + ปรับความยาว)
       float softCapsule(vec2 uv, vec2 c, float rx, float ry, float len, float s, float angle) {
-        // ทำให้เป็นแกนตรงกลางยาว len แล้วปวมด้วยรีเดียส (rx, ry)
         vec2 p = (uv - c) * rot(-angle);
-        // squash ให้เป็นรี
         p = vec2(p.x/len, p.y);
-        float d = length(vec2(p.x, p.y/ry)); // วงรีคร่าว ๆ บนแกน
+        float d = length(vec2(p.x, p.y/ry));
         return smoothstep(1.0, 1.0 - s, d);
       }
-
-      // 5) soft ring (โดนัท) + anisotropy + rotation
       float softRing(vec2 uv, vec2 c, float rOuter, float thickness, float s, float angle) {
         vec2 d = (uv - c) * rot(-angle);
         float rr = length(d);
@@ -152,16 +142,14 @@ function FullscreenGradient({
       void main () {
         vec2 uv = vUv;
 
-        // รักษาอัตราส่วน (content หน้ากว้าง)
         float aspect = uResolution.x / uResolution.y;
         uv.x = (uv.x - 0.5) * aspect + 0.5;
 
-        // parallax: เน้น X นิด
-        vec2 par = vec2(uPointer.x * 1.1, -uPointer.y) * uParallax;
-        uv += par * 0.05;
+        // parallax: ลดแอมพลิจูดลงเล็กน้อยให้คงเส้นคงวา
+        vec2 par = vec2(uPointer.x * 1.1, -uPointer.y) * (uParallax * 0.85);
+        uv += par * 0.045;
 
         float t = uTime * uSpeed;
-
         vec3 col = vec3(0.0);
 
         for (int i = 0; i < ${MAX_BLOBS}; i++) {
@@ -172,28 +160,24 @@ function FullscreenGradient({
           float f1 = 0.6 + hash11(fi*11.0) * 1.0;
           float f2 = 0.5 + hash11(fi*17.0) * 1.0;
 
-          // จุดฐาน + เคลื่อนไหว (X กระจายมากกว่า Y)
+          // ลด amplitude นิดหน่อยเพื่อกัน “วิ่งเยอะ” บนบางเครื่อง
           vec2 wob  = vec2(
             sin(t*f1 + ph) * (uSpreadX + 0.12*hash11(fi*23.0)),
             cos(t*f2 + ph*0.7) * (uSpreadY + 0.06*hash11(fi*29.0))
-          ) * 0.45;
+          ) * 0.40; // เดิม 0.45
 
           vec2 base = BASES[i] + vec2(0.0, -0.05);
           float depth = 0.5 + 0.5*hash11(fi*41.0);
           vec2 center = base + wob + par * (0.14 * depth);
 
-          // พารามิเตอร์ทรงสุ่ม
-          float angle = ph + t * (0.05 + 0.05*hash11(fi*67.0)); // หมุนช้า ๆ
-          // อัตราส่วนแกน (ยืด/บีบ)
+          float angle = ph + t * (0.05 + 0.05*hash11(fi*67.0));
           float ax = 0.85 + 0.6*hash11(fi*71.0);
           float ay = 0.85 + 0.6*hash11(fi*73.0);
-          // กำลังของ superellipse (p=2 คือวงกลม)
           float pe = 1.4 + 2.2*hash11(fi*79.0);
 
           float r = uRadius * (0.85 + 0.35*hash11(fi*53.0));
           float s = uSoft  * (0.85 + 0.35*hash11(fi*59.0));
 
-          // เลือกทรง (0..4)
           float pick = hash11(fi*97.0);
           float w = 0.0;
           if (pick < 0.20) {
@@ -203,25 +187,20 @@ function FullscreenGradient({
           } else if (pick < 0.65) {
             w = softDiamond(uv, center, r*ax, r*ay, s, angle);
           } else if (pick < 0.85) {
-            // capsule: ความยาวแกนรวม len=1.0..1.6
             float len = 1.0 + 0.6*hash11(fi*101.0);
             w = softCapsule(uv, center, r*ax, r*ay, len, s, angle);
           } else {
-            // ring: โดนัทหนา/บางต่างกัน
             float thick = r * (0.35 + 0.35*hash11(fi*103.0));
             w = softRing(uv, center, r, thick, s, angle);
           }
 
-          // สีตามพาเลต + depth
           vec3 c = uColors[i % 6] * mix(0.82, 1.0, depth);
           col += c * pow(w, 1.1);
         }
 
-        // vignette
         float v = smoothstep(0.985, 0.52, distance(uv, vec2(0.5, 0.5)));
         col *= mix(1.0, v, 0.40);
 
-        // tone-map + gamma
         col = aces(col * 0.9);
         col = pow(col, vec3(1.0/2.2));
 
@@ -233,22 +212,31 @@ function FullscreenGradient({
       uniforms,
       vertexShader: vertex,
       fragmentShader: fragment,
-      transparent: true, // ซ้อนกับ gradient พื้นหลัง
+      transparent: true,
     })
 
     matRef.current = mat
     return mat
   }, [palette, size.width, size.height, count, speed, spreadX, spreadY, radius, softness, parallax])
 
-  // อัปเดตเวลา/ขนาด/พอยน์เตอร์
-  useFrame((state, dt) => {
+  // อัปเดตเวลา/ขนาด/พอยน์เตอร์ (เวอร์ชันเสถียรขึ้น)
+  useFrame((state) => {
     const mat = matRef.current
     if (!mat) return
-    mat.uniforms.uTime.value += dt
+
+    // ใช้เวลาจาก clock โดยตรง ป้องกัน dt spikes / refresh rate แปลก ๆ
+    mat.uniforms.uTime.value = state.clock.getElapsedTime()
+
     ;(mat.uniforms.uResolution.value as THREE.Vector2).set(size.width, size.height)
+
+    // หน่วง pointer ให้ smooth และจำกัดขนาด
     const p = mat.uniforms.uPointer.value as THREE.Vector2
-    p.x = THREE.MathUtils.lerp(p.x, state.pointer.x, 0.08)
-    p.y = THREE.MathUtils.lerp(p.y, state.pointer.y, 0.08)
+    const targetX = THREE.MathUtils.clamp(state.pointer.x, -1, 1)
+    const targetY = THREE.MathUtils.clamp(state.pointer.y, -1, 1)
+
+    // damp ช้าลงนิดเพื่อกัน “วิ่งตามเมาส์แรงไป”
+    p.x = THREE.MathUtils.damp(p.x, targetX, 6, state.clock.getDelta())
+    p.y = THREE.MathUtils.damp(p.y, targetY, 6, state.clock.getDelta())
   })
 
   return (
@@ -266,7 +254,9 @@ export default function HeroScene(props: Props) {
         orthographic
         camera={{ position: [0, 0, 10], zoom: 100 }}
         gl={{ antialias: true }}
-        onCreated={({ gl }) => gl.setClearColor(0x000000, 0)} // โปร่งใส
+        // จำกัด DPR ให้เสถียร (เครื่องบางตัว DPR สูง ทำให้พฤติกรรมแปลก)
+        dpr={[1, 2]}
+        onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
       >
         <FullscreenGradient {...props} />
       </Canvas>

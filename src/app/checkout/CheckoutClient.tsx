@@ -1,3 +1,4 @@
+// app/checkout/CheckoutClient.tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -11,11 +12,10 @@ function formatPrice(n: number) {
   }
 }
 
-// เดโม PromptPay: ใส่เบอร์/พร้อมเพย์ตัวอย่าง (เปลี่ยนได้)
+// เดโม PromptPay
 const DEMO_PROMPTPAY = '0812345678'
 const DEMO_ACCOUNT_NAME = 'Panyakorn P.'
 
-// QR เดโม: เข้ารหัสข้อมูลง่าย ๆ (ไม่ใช่ EMVCo แท้)
 function buildDemoQRData(amount: number, orderId: string) {
   const payload = {
     type: 'PROMPTPAY_DEMO',
@@ -28,12 +28,61 @@ function buildDemoQRData(amount: number, orderId: string) {
 }
 
 type Props = {
-  amount: number
+  amount?: number
   rawParams?: { [key: string]: string | string[] | undefined }
+}
+
+type ProductParam = {
+  id?: string
+  name?: string
+  price?: number
+  currency?: string
+  description?: string
+  image?: string
+  stock?: number
+  model?: string
+  qty?: number
 }
 
 export default function CheckoutClient({ amount, rawParams }: Props) {
   const router = useRouter()
+
+  // --- helpers ---
+  const getStr = (k: string) => {
+    const v = rawParams?.[k]
+    return Array.isArray(v) ? v[0] : v ?? undefined
+  }
+  const getNum = (k: string) => {
+    const s = getStr(k)
+    const n = Number(s)
+    return Number.isFinite(n) ? n : undefined
+  }
+
+  // ดึงสินค้า/จำนวนจาก URL (เดโม)
+  const product: ProductParam = useMemo(() => {
+    if (!rawParams) return {}
+    return {
+      id: getStr('id'),
+      name: getStr('name'),
+      price: getNum('price'),
+      currency: getStr('currency') ?? 'THB',
+      description: getStr('description'),
+      image: getStr('image'),
+      stock: getNum('stock'),
+      model: getStr('model'),
+      qty: (() => {
+        const q = Number(getStr('qty') ?? '1')
+        return Number.isFinite(q) && q > 0 ? q : 1
+      })(),
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(rawParams)])
+
+  const effectiveAmount = useMemo(() => {
+    if (typeof amount === 'number') return amount
+    if (product.price && product.qty) return Math.max(0, Math.round(product.price * product.qty * 100) / 100)
+    return 0
+  }, [amount, product.price, product.qty])
 
   // อ่านที่อยู่ที่บันทึกไว้ (เดโม)
   const [shippingInfo, setShippingInfo] = useState<any>(null)
@@ -52,16 +101,15 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
   }, [])
 
   // นับถอยหลัง 15 นาที
-  const [remain, setRemain] = useState(15 * 60) // วินาที
+  const [remain, setRemain] = useState(15 * 60)
   useEffect(() => {
     const t = setInterval(() => setRemain((s) => Math.max(0, s - 1)), 1000)
     return () => clearInterval(t)
   }, [])
-
   const mm = Math.floor(remain / 60).toString().padStart(2, '0')
   const ss = (remain % 60).toString().padStart(2, '0')
 
-  const qrData = buildDemoQRData(amount, orderId)
+  const qrData = buildDemoQRData(effectiveAmount, orderId)
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${qrData}`
 
   function copy(s: string) {
@@ -98,9 +146,44 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
               <p className="text-sm text-white/70 mt-1">
                 คำสั่งซื้อ: <span className="font-mono">{orderId}</span>
               </p>
+
               <p className="text-3xl font-extrabold mt-2">
-                {formatPrice(amount)} ฿
+                {formatPrice(effectiveAmount)} ฿
               </p>
+
+              {/* สรุปรายการจากพารามิเตอร์ */}
+              {(product.name || product.id) && (
+                <div className="mt-4 rounded-lg bg-black/30 ring-1 ring-white/10 p-3">
+                  <div className="flex gap-3">
+                    {product.image ? (
+                      <img
+                        src={product.image}
+                        alt={product.name ?? product.id}
+                        className="w-16 h-16 rounded-md object-cover"
+                      />
+                    ) : null}
+                    <div className="text-sm">
+                      <div className="font-semibold">
+                        {product.name ?? product.id}
+                      </div>
+                      {product.model && (
+                        <div className="text-white/70">รุ่น/โมเดล: {product.model}</div>
+                      )}
+                      <div className="text-white/70">
+                        จำนวน: {product.qty ?? 1}
+                        {product.price != null && (
+                          <> · ราคา/ชิ้น: {formatPrice(product.price)} ฿</>
+                        )}
+                      </div>
+                      {product.description && (
+                        <div className="mt-1 text-xs text-white/60 line-clamp-2">
+                          {product.description}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="mt-4 grid gap-2 text-sm">
                 <div className="flex items-center gap-2">
@@ -119,9 +202,9 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-white/60 w-36">ยอดที่ต้องชำระ</span>
-                  <span className="font-semibold">{formatPrice(amount)} ฿</span>
+                  <span className="font-semibold">{formatPrice(effectiveAmount)} ฿</span>
                   <button
-                    onClick={() => copy(amount.toFixed(2))}
+                    onClick={() => copy(effectiveAmount.toFixed(2))}
                     className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-xs"
                   >
                     คัดลอก
