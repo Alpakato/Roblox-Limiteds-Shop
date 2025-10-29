@@ -176,7 +176,7 @@ export default function ProductCard({ item }: { item: Item }) {
               aria-label={`Checkout ${item.title} now`}
               onClick={goCheckoutNow}
             >
-              ซื้อทันที
+              ดูรายละเอียดสินค้า
             </button>
           </div>
 
