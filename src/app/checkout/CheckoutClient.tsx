@@ -52,12 +52,10 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
   function getFromRaw(k: string) {
     const rp: any = rawParams
     if (!rp) return undefined
-    // ถ้าเป็น object ปกติ
     if (typeof rp === 'object' && !Array.isArray(rp) && !(rp instanceof Promise)) {
       const v = rp[k]
       return Array.isArray(v) ? v[0] : v
     }
-    // ถ้าเป็น React "resolved_model" ที่ห่อสตริง JSON ไว้ใน value
     try {
       const val = (rp as any)?.value ?? rp
       if (typeof val === 'string') {
@@ -75,7 +73,7 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
 
   const parseNum = (s?: string) => {
     if (!s) return undefined
-    const cleaned = s.replace(/[^\d.-]/g, '') // กัน "500 Robux" / " 500 "
+    const cleaned = s.replace(/[^\d.-]/g, '')
     const n = Number(cleaned)
     return Number.isFinite(n) ? n : undefined
   }
@@ -103,7 +101,6 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
   }, [JSON.stringify(rawParams)])
 
   useEffect(() => {
-    // ดีบัก: เห็นค่าที่เข้ามาจริง
     console.log('[checkout] mount rawParams =', rawParams)
     console.log('[checkout] getStr("robuxDelta") =', getStr('robuxDelta'))
   }, [rawParams])
@@ -180,7 +177,6 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
       localStorage.setItem('robux', String(next))
       console.log('[robux] saved to localStorage', { next })
 
-      // หน่วง 1 frame เพื่อให้ listener ใน Header พร้อม
       requestAnimationFrame(() => {
         window.dispatchEvent(new CustomEvent('robux:set', { detail: { value: next } }))
         console.log('[robux] dispatched event: robux:set', { value: next })
@@ -204,45 +200,61 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-6">
+    <main className="mx-auto max-w-5xl px-3 sm:px-4 py-4 sm:py-6">
+      {/* แถบกลับ */}
       <div className="flex items-center gap-2 text-white/70 text-sm">
-        <button className="underline hover:text-white/90" onClick={() => router.back()}>
+        <button
+          className="underline hover:text-white/90 tap-highlight-transparent"
+          onClick={() => router.back()}
+        >
           &larr; กลับตะกร้า
         </button>
       </div>
 
-      <h1 className="mt-2 text-2xl font-extrabold tracking-tight">ชำระเงิน (เดโม)</h1>
+      <h1 className="mt-2 text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight">
+        ชำระเงิน (เดโม)
+      </h1>
 
-      <section className="mt-6 grid gap-6 lg:grid-cols-[1.1fr,0.9fr]">
+      {/* Layout: มือถือ = คอลัมน์ / จอใหญ่ = 2 คอลัมน์ */}
+      <section className="mt-4 sm:mt-6 grid gap-4 sm:gap-6 lg:grid-cols-[1.1fr,0.9fr]">
         {/* ซ้าย: QR + คำแนะนำ */}
-        <div className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-5">
-          <div className="flex items-start gap-5">
-            <div className="shrink-0 rounded-xl ring-1 ring-white/10 bg-black/30 p-3">
-              <img src={qrUrl} alt="QR เดโม" className="w-[280px] h-[280px]" />
+        <div className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-3 sm:p-5">
+          <div className="flex flex-col md:flex-row items-stretch md:items-start gap-4 sm:gap-5">
+            <div className="self-center md:self-auto shrink-0 rounded-xl ring-1 ring-white/10 bg-black/30 p-2 sm:p-3">
+              {/* ขนาด QR ย่อ/ขยายตามจอ */}
+              <img
+                src={qrUrl}
+                alt="QR เดโม"
+                className="w-[200px] h-[200px] sm:w-[240px] sm:h-[240px] md:w-[280px] md:h-[280px] object-contain"
+              />
             </div>
 
-            <div className="flex-1">
-              <h2 className="text-lg font-bold">สแกนจ่ายด้วย PromptPay (เดโม)</h2>
-              <p className="text-sm text-white/70 mt-1">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-base sm:text-lg font-bold">สแกนจ่ายด้วย PromptPay (เดโม)</h2>
+              <p className="text-xs sm:text-sm text-white/70 mt-1 break-words">
                 คำสั่งซื้อ: <span className="font-mono">{orderId}</span>
               </p>
 
-              <p className="text-3xl font-extrabold mt-2">{formatPrice(effectiveAmount)} ฿</p>
+              <p className="text-2xl sm:text-3xl font-extrabold mt-2">
+                {formatPrice(effectiveAmount)} ฿
+              </p>
 
               {(product.name || product.id) && (
-                <div className="mt-4 rounded-lg bg-black/30 ring-1 ring-white/10 p-3">
+                <div className="mt-3 sm:mt-4 rounded-lg bg-black/30 ring-1 ring-white/10 p-3">
                   <div className="flex gap-3">
                     {product.image ? (
                       <img
                         src={product.image}
                         alt={product.name ?? product.id}
-                        className="w-16 h-16 rounded-md object-cover"
+                        className="w-14 h-14 sm:w-16 sm:h-16 rounded-md object-cover"
                       />
                     ) : null}
-                    <div className="text-sm">
-                      <div className="font-semibold">{product.name ?? product.id}</div>
+                    <div className="text-sm min-w-0">
+                      <div className="font-semibold truncate">
+                        {product.name ?? product.id}
+                      </div>
                       {product.model && (
-                        <div className="text-white/70">รุ่น/โมเดล: {product.model}</div>
+                        <div className="text-white/70 truncate">รุ่น/โมเดล: {product.model}</div>
                       )}
                       <div className="text-white/70">
                         จำนวน: {product.qty ?? 1}
@@ -260,52 +272,52 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
                 </div>
               )}
 
-              <div className="mt-4 grid gap-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="text-white/60 w-36">หมายเลขพร้อมเพย์</span>
+              <div className="mt-3 sm:mt-4 grid gap-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-white/60 w-36 max-sm:w-32">หมายเลขพร้อมเพย์</span>
                   <span className="font-mono">{DEMO_PROMPTPAY}</span>
                   <button
                     onClick={() => copy(DEMO_PROMPTPAY)}
-                    className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-xs"
+                    className="ml-auto sm:ml-0 px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-xs"
                   >
                     คัดลอก
                   </button>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-white/60 w-36">ชื่อบัญชี</span>
-                  <span>{DEMO_ACCOUNT_NAME}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-white/60 w-36 max-sm:w-32">ชื่อบัญชี</span>
+                  <span className="break-words">{DEMO_ACCOUNT_NAME}</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-white/60 w-36">ยอดที่ต้องชำระ</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-white/60 w-36 max-sm:w-32">ยอดที่ต้องชำระ</span>
                   <span className="font-semibold">{formatPrice(effectiveAmount)} ฿</span>
                   <button
                     onClick={() => copy(effectiveAmount.toFixed(2))}
-                    className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-xs"
+                    className="ml-auto sm:ml-0 px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-xs"
                   >
                     คัดลอก
                   </button>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-white/60 w-36">เวลาคงเหลือ</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-white/60 w-36 max-sm:w-32">เวลาคงเหลือ</span>
                   <span className="font-mono">
                     {mm}:{ss}
                   </span>
                 </div>
               </div>
 
-              <div className="mt-5 text-xs text-white/60">
+              <div className="mt-3 sm:mt-5 text-xs text-white/60">
                 * หน้านี้เป็นเดโม ไม่มีการรับ-ตรวจยอดเงินจริง ข้อมูลใน QR เป็นข้อความจำลอง
               </div>
 
-              <div className="mt-6 flex flex-wrap items-center gap-2">
+              <div className="mt-4 sm:mt-6 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2">
                 <button
-                  className="rounded-lg bg-emerald-500/90 px-4 py-2 font-bold text-black hover:bg-emerald-400"
+                  className="w-full sm:w-auto rounded-lg bg-emerald-500/90 px-4 py-2 font-bold text-black hover:bg-emerald-400"
                   onClick={onPaid}
                 >
                   ฉันชำระเงินแล้ว
                 </button>
                 <button
-                  className="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/20"
+                  className="w-full sm:w-auto rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/20"
                   onClick={() => router.push('/')}
                 >
                   กลับหน้าแรก
@@ -316,10 +328,10 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
         </div>
 
         {/* ขวา: ที่อยู่จัดส่งเดโม */}
-        <div className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-5 h-fit">
-          <h3 className="font-semibold mb-3">ที่อยู่จัดส่ง (เดโม)</h3>
+        <div className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-3 sm:p-5 h-fit">
+          <h3 className="font-semibold mb-2 sm:mb-3">ที่อยู่จัดส่ง (เดโม)</h3>
           {shippingInfo ? (
-            <div className="text-sm leading-6">
+            <div className="text-sm leading-6 break-words">
               <div className="font-semibold">{shippingInfo.fullName}</div>
               {shippingInfo.phone && <div>โทร: {shippingInfo.phone}</div>}
               {shippingInfo.email && <div>อีเมล: {shippingInfo.email}</div>}
@@ -340,21 +352,19 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
               )}
             </div>
           ) : (
-            <div className="text-sm text-white/60">
-              ยังไม่มีข้อมูล — กลับไปกรอกที่หน้าตะกร้า
-            </div>
+            <div className="text-sm text-white/60">ยังไม่มีข้อมูล — กลับไปกรอกที่หน้าตะกร้า</div>
           )}
 
-          <div className="mt-4">
+          <div className="mt-3 sm:mt-4">
             <button
-              className="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/20"
+              className="w-full sm:w-auto rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/20"
               onClick={() => router.push('/cart')}
             >
               แก้ไขที่อยู่
             </button>
           </div>
 
-          <hr className="my-4 border-white/10" />
+          <hr className="my-3 sm:my-4 border-white/10" />
 
           <div className="text-xs text-white/60">
             หมายเหตุ: หน้านี้เป็นตัวอย่าง UX เท่านั้น หากต้องการจ่ายเงินจริง
