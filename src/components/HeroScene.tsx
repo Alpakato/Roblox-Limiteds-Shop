@@ -48,7 +48,7 @@ function FullscreenGradient({
       uTime: { value: 0 },
       uResolution: { value: new THREE.Vector2(size.width, size.height) },
       uColors: { value: palette }, // vec3[6]
-      uCount: { value: Math.min(MAX_BLOBS, Math.max(1, count)) },
+      uCount: { value: Math.min(MAX_BLOBS, Math.max(1, count)) }, // คงชนิด/ตำแหน่งเดิม
       uSpeed: { value: speed },
       uRadius: { value: radius },
       uSoft: { value: softness },
@@ -67,7 +67,7 @@ function FullscreenGradient({
     `
 
     const fragment = /* glsl */`
-      // ใช้ highp เพิ่มเสถียรภาพบนอุปกรณ์/เบราว์เซอร์บางตัว
+      // ใช้ highp เพื่อความเสถียรเวลา build/prod
       precision highp float;
 
       varying vec2 vUv;
@@ -76,7 +76,7 @@ function FullscreenGradient({
       uniform vec2  uResolution;
       uniform vec3  uColors[6];
 
-      uniform int   uCount;
+      uniform int   uCount;   // ❗ คงไว้ตามตำแหน่งเดิม
       uniform float uSpeed;
       uniform float uRadius;
       uniform float uSoft;
@@ -92,12 +92,18 @@ function FullscreenGradient({
         vec2(0.94,0.34), vec2(0.32,0.64), vec2(0.68,0.60), vec2(0.52,0.26)
       );
 
+      // --- fixed hash (stable after production build/minify) ---
+      // ไอเดีย: คง sin*fract แต่เพิ่ม perturbation เล็กน้อย + ใช้ตัวแปร highp แยกก่อน fract
       float hash11(float p) {
-        return fract(sin(p*127.1)*43758.5453123);
+        highp float x = fract(sin(p * 43758.5453123) * 43758.5453123);
+        // เพิ่มคลื่นเล็ก ๆ ที่ deterministic เพื่อลด rounding anomaly ตอน optimizer
+        return fract(x + 0.5 * sin((x + 0.12345) * 6.2831853));
       }
       float hash21(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        highp float x = fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        return fract(x + 0.5 * sin((x + 0.54321) * 12.9898));
       }
+
       mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
 
       float softCircle(vec2 uv, vec2 c, float r, float s) {
@@ -160,11 +166,11 @@ function FullscreenGradient({
           float f1 = 0.6 + hash11(fi*11.0) * 1.0;
           float f2 = 0.5 + hash11(fi*17.0) * 1.0;
 
-          // ลด amplitude นิดหน่อยเพื่อกัน “วิ่งเยอะ” บนบางเครื่อง
+          // ลด amplitude นิดเพื่อความเสถียรข้ามอุปกรณ์
           vec2 wob  = vec2(
             sin(t*f1 + ph) * (uSpreadX + 0.12*hash11(fi*23.0)),
             cos(t*f2 + ph*0.7) * (uSpreadY + 0.06*hash11(fi*29.0))
-          ) * 0.40; // เดิม 0.45
+          ) * 0.40;
 
           vec2 base = BASES[i] + vec2(0.0, -0.05);
           float depth = 0.5 + 0.5*hash11(fi*41.0);
@@ -219,12 +225,12 @@ function FullscreenGradient({
     return mat
   }, [palette, size.width, size.height, count, speed, spreadX, spreadY, radius, softness, parallax])
 
-  // อัปเดตเวลา/ขนาด/พอยน์เตอร์ (เวอร์ชันเสถียรขึ้น)
+  // อัปเดตเวลา/ขนาด/พอยน์เตอร์ (เวอร์ชันเสถียร)
   useFrame((state) => {
     const mat = matRef.current
     if (!mat) return
 
-    // ใช้เวลาจาก clock โดยตรง ป้องกัน dt spikes / refresh rate แปลก ๆ
+    // ใช้เวลาจาก clock โดยตรง
     mat.uniforms.uTime.value = state.clock.getElapsedTime()
 
     ;(mat.uniforms.uResolution.value as THREE.Vector2).set(size.width, size.height)
@@ -233,8 +239,6 @@ function FullscreenGradient({
     const p = mat.uniforms.uPointer.value as THREE.Vector2
     const targetX = THREE.MathUtils.clamp(state.pointer.x, -1, 1)
     const targetY = THREE.MathUtils.clamp(state.pointer.y, -1, 1)
-
-    // damp ช้าลงนิดเพื่อกัน “วิ่งตามเมาส์แรงไป”
     p.x = THREE.MathUtils.damp(p.x, targetX, 6, state.clock.getDelta())
     p.y = THREE.MathUtils.damp(p.y, targetY, 6, state.clock.getDelta())
   })
@@ -254,7 +258,6 @@ export default function HeroScene(props: Props) {
         orthographic
         camera={{ position: [0, 0, 10], zoom: 100 }}
         gl={{ antialias: true }}
-        // จำกัด DPR ให้เสถียร (เครื่องบางตัว DPR สูง ทำให้พฤติกรรมแปลก)
         dpr={[1, 2]}
         onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
       >

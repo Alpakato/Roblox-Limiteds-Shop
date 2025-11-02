@@ -11,6 +11,7 @@ import Footer from '@/components/Footer'
 import AutoAddressGate from '@/components/AutoAddressGate'
 import LocationBadge from '@/components/LocationBadge'
 import { useSearchParams } from 'next/navigation'
+import SpecialOfferPopup from '@/components/SpecialOfferPopup' // ✅ default import (ไม่ใช้ { ... })
 
 // แยกเป็น HomeClient: ส่วนที่ใช้ useSearchParams() และ state ฝั่ง client
 function HomeClient() {
@@ -38,6 +39,11 @@ function HomeClient() {
       return () => clearTimeout(t)
     }
   }, [paid])
+
+  // ✅ รวม items ทั้งสองหมวดไว้ให้ SpecialOfferPopup สุ่ม
+  const popupItems = useMemo(() => {
+    return [...(visibleRoblox ?? []), ...(visibleUGC ?? [])]
+  }, [visibleRoblox, visibleUGC])
 
   return (
     <main>
@@ -115,6 +121,18 @@ function HomeClient() {
         {loading && <div className="text-center text-white/60 py-8">Loading...</div>}
         {error && <div className="text-center text-red-400 py-8">❌ Failed to load catalog: {error}</div>}
       </section>
+
+      {/* ✅ เรียกใช้ SpecialOfferPopup วางท้ายหน้า (fixed / overlay) */}
+      {!!popupItems.length && (
+        <SpecialOfferPopup
+          items={popupItems}
+          openDelayMs={300000}            // ดีเลย์ 8 วิ
+          durationMs={5 * 60 * 1000}    // อยู่ได้ 5 นาที
+          discountPct={35}              // ลด 35%
+          oncePerSession={false}         // แสดงแค่ครั้งเดียวต่อ session
+          exitIntentEnabled={true}      // เด้งเมื่อมี exit-intent
+        />
+      )}
 
       <Footer />
     </main>

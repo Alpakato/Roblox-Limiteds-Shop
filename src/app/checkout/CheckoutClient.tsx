@@ -1,4 +1,3 @@
-// app/checkout/CheckoutClient.tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -47,18 +46,43 @@ type ProductParam = {
 export default function CheckoutClient({ amount, rawParams }: Props) {
   const router = useRouter()
 
-  // --- helpers ---
-  const getStr = (k: string) => {
-    const v = rawParams?.[k]
-    return Array.isArray(v) ? v[0] : v ?? undefined
+  // ========= helpers (robust parsing) =========
+  const q = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+
+  function getFromRaw(k: string) {
+    const rp: any = rawParams
+    if (!rp) return undefined
+    // ถ้าเป็น object ปกติ
+    if (typeof rp === 'object' && !Array.isArray(rp) && !(rp instanceof Promise)) {
+      const v = rp[k]
+      return Array.isArray(v) ? v[0] : v
+    }
+    // ถ้าเป็น React "resolved_model" ที่ห่อสตริง JSON ไว้ใน value
+    try {
+      const val = (rp as any)?.value ?? rp
+      if (typeof val === 'string') {
+        const obj = JSON.parse(val)
+        return obj?.[k]
+      }
+    } catch {}
+    return undefined
   }
-  const getNum = (k: string) => {
-    const s = getStr(k)
-    const n = Number(s)
+
+  const getStr = (k: string) => {
+    const v = getFromRaw(k) ?? q?.get(k) ?? undefined
+    return typeof v === 'string' ? v.trim() : v ?? undefined
+  }
+
+  const parseNum = (s?: string) => {
+    if (!s) return undefined
+    const cleaned = s.replace(/[^\d.-]/g, '') // กัน "500 Robux" / " 500 "
+    const n = Number(cleaned)
     return Number.isFinite(n) ? n : undefined
   }
 
-  // ดึงสินค้า/จำนวนจาก URL (เดโม)
+  const getNum = (k: string) => parseNum(getStr(k))
+
+  // ========= product from query (demo) =========
   const product: ProductParam = useMemo(() => {
     if (!rawParams) return {}
     return {
@@ -71,20 +95,42 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
       stock: getNum('stock'),
       model: getStr('model'),
       qty: (() => {
-        const q = Number(getStr('qty') ?? '1')
-        return Number.isFinite(q) && q > 0 ? q : 1
+        const q = parseNum(getStr('qty') ?? '1') ?? 1
+        return q > 0 ? q : 1
       })(),
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(rawParams)])
 
+  useEffect(() => {
+    // ดีบัก: เห็นค่าที่เข้ามาจริง
+    console.log('[checkout] mount rawParams =', rawParams)
+    console.log('[checkout] getStr("robuxDelta") =', getStr('robuxDelta'))
+  }, [rawParams])
+
   const effectiveAmount = useMemo(() => {
     if (typeof amount === 'number') return amount
-    if (product.price && product.qty) return Math.max(0, Math.round(product.price * product.qty * 100) / 100)
+    if (product.price && product.qty)
+      return Math.max(0, Math.round(product.price * product.qty * 100) / 100)
     return 0
   }, [amount, product.price, product.qty])
 
-  // อ่านที่อยู่ที่บันทึกไว้ (เดโม)
+  // ========= Robux flow params =========
+  const returnTo = getStr('returnTo') || '/'
+  const _robuxDeltaStr =
+    getStr('robuxDelta') ??
+    getStr('r') ??
+    getStr('robux') ??
+    getStr('price_buxDelta') ??
+    getStr('pric_buxDelta')
+  console.log('[checkout] _robuxDeltaStr =', _robuxDeltaStr)
+  const robuxDelta = (() => {
+    const n = parseNum(_robuxDeltaStr ?? '0') ?? 0
+    console.log('[checkout] parsed robuxDelta =', n)
+    return n > 0 ? n : 0
+  })()
+
+  // ========= demo shipping info =========
   const [shippingInfo, setShippingInfo] = useState<any>(null)
   useEffect(() => {
     try {
@@ -93,14 +139,14 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
     } catch {}
   }, [])
 
-  // สร้างหมายเลขสั่งซื้อเดโม
+  // ========= order id =========
   const orderId = useMemo(() => {
     const ts = Date.now().toString(36).toUpperCase()
     const r = Math.random().toString(36).slice(2, 6).toUpperCase()
     return `PX-${ts}-${r}`
   }, [])
 
-  // นับถอยหลัง 15 นาที
+  // ========= countdown 15 min =========
   const [remain, setRemain] = useState(15 * 60)
   useEffect(() => {
     const t = setInterval(() => setRemain((s) => Math.max(0, s - 1)), 1000)
@@ -118,20 +164,54 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
     } catch {}
   }
 
+  // ========= LOG + SAVE + BROADCAST =========
+  function addRobuxToLocalStorage(delta: number) {
+    if (!(delta > 0)) {
+      console.log('[robux] skip add: invalid delta', delta)
+      return
+    }
+    try {
+      const raw = localStorage.getItem('robux')
+      const cur = Number(raw ?? '0')
+      const safeCur = Number.isFinite(cur) ? cur : 0
+      const next = Math.max(0, safeCur + delta)
+
+      console.log('[robux] before save', { current: safeCur, delta, next })
+      localStorage.setItem('robux', String(next))
+      console.log('[robux] saved to localStorage', { next })
+
+      // หน่วง 1 frame เพื่อให้ listener ใน Header พร้อม
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent('robux:set', { detail: { value: next } }))
+        console.log('[robux] dispatched event: robux:set', { value: next })
+      })
+    } catch (err) {
+      console.warn('[robux] save failed', err)
+    }
+  }
+
+  function onPaid() {
+    console.log('[checkout] onPaid called', { robuxDelta, returnTo })
+    if (robuxDelta > 0) {
+      addRobuxToLocalStorage(robuxDelta)
+      const u = new URL(returnTo, window.location.origin)
+      u.searchParams.set('robux', String(robuxDelta))
+      console.log('[checkout] redirect to', u.toString())
+      router.push(u.pathname + u.search)
+      return
+    }
+    router.push('/?paid=1')
+  }
+
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
       <div className="flex items-center gap-2 text-white/70 text-sm">
-        <button
-          className="underline hover:text-white/90"
-          onClick={() => router.back()}
-        >
+        <button className="underline hover:text-white/90" onClick={() => router.back()}>
           &larr; กลับตะกร้า
         </button>
       </div>
 
-      <h1 className="mt-2 text-2xl font-extrabold tracking-tight">
-        ชำระเงิน (เดโม)
-      </h1>
+      <h1 className="mt-2 text-2xl font-extrabold tracking-tight">ชำระเงิน (เดโม)</h1>
 
       <section className="mt-6 grid gap-6 lg:grid-cols-[1.1fr,0.9fr]">
         {/* ซ้าย: QR + คำแนะนำ */}
@@ -147,11 +227,8 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
                 คำสั่งซื้อ: <span className="font-mono">{orderId}</span>
               </p>
 
-              <p className="text-3xl font-extrabold mt-2">
-                {formatPrice(effectiveAmount)} ฿
-              </p>
+              <p className="text-3xl font-extrabold mt-2">{formatPrice(effectiveAmount)} ฿</p>
 
-              {/* สรุปรายการจากพารามิเตอร์ */}
               {(product.name || product.id) && (
                 <div className="mt-4 rounded-lg bg-black/30 ring-1 ring-white/10 p-3">
                   <div className="flex gap-3">
@@ -163,9 +240,7 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
                       />
                     ) : null}
                     <div className="text-sm">
-                      <div className="font-semibold">
-                        {product.name ?? product.id}
-                      </div>
+                      <div className="font-semibold">{product.name ?? product.id}</div>
                       {product.model && (
                         <div className="text-white/70">รุ่น/โมเดล: {product.model}</div>
                       )}
@@ -225,7 +300,7 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
               <div className="mt-6 flex flex-wrap items-center gap-2">
                 <button
                   className="rounded-lg bg-emerald-500/90 px-4 py-2 font-bold text-black hover:bg-emerald-400"
-                  onClick={() => router.push('/?paid=1')}
+                  onClick={onPaid}
                 >
                   ฉันชำระเงินแล้ว
                 </button>
@@ -255,12 +330,9 @@ export default function CheckoutClient({ amount, rawParams }: Props) {
                   {shippingInfo.address2}
                 </div>
               )}
-              {(shippingInfo.district ||
-                shippingInfo.province ||
-                shippingInfo.postcode) && (
+              {(shippingInfo.district || shippingInfo.province || shippingInfo.postcode) && (
                 <div>
-                  {shippingInfo.district} {shippingInfo.province}{' '}
-                  {shippingInfo.postcode}
+                  {shippingInfo.district} {shippingInfo.province} {shippingInfo.postcode}
                 </div>
               )}
               {shippingInfo.note && (

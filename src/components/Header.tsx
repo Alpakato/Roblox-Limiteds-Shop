@@ -10,7 +10,6 @@ export default function Header() {
   const { count } = useCart()
   const [query, setQuery] = useState('')
   const { roblox, ugc, loading } = useCatalog(query)
-
   const results = [...roblox, ...ugc].slice(0, 6)
 
   // เอฟเฟกต์ตะกร้า
@@ -27,12 +26,127 @@ export default function Header() {
       setBump(true)
       setPlusOne((n) => n + 1)
       const t = setTimeout(() => setBump(false), 450)
-      // อย่า return cleanup จากใน handler (ไม่มีคนเรียก) ให้จัดด้านนอกแทน
       void t
     }
     document.addEventListener('cart:add', onAdd as EventListener)
     return () => document.removeEventListener('cart:add', onAdd as EventListener)
   }, [])
+
+  // === Robux pill ===
+  const [robux, setRobux] = useState<number>(0)
+
+  useEffect(() => {
+    // อ่านตอน mount
+    const readNow = () => {
+      try {
+        const raw = localStorage.getItem('robux')
+        const cur = Number(raw ?? '0')
+        const safe = Number.isFinite(cur) ? cur : 0
+        setRobux(safe)
+        if (raw === null) localStorage.setItem('robux', String(safe))
+        // ถ้าเจอธง -> rebroadcast แล้วลบทิ้ง (กันพลาดอีเวนต์ช่วงเปลี่ยนหน้า)
+        if (localStorage.getItem('robux_needs_broadcast') === '1') {
+          window.dispatchEvent(new CustomEvent('robux:set', { detail: { value: safe } }))
+          localStorage.removeItem('robux_needs_broadcast')
+        }
+        console.log('[robux][header] mount ->', { value: safe })
+      } catch {}
+    }
+    readNow()
+
+    // cross-tab sync
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'robux' && e.newValue !== null) {
+        const v = Number(e.newValue)
+        if (!Number.isNaN(v)) {
+          console.log('[robux][header] storage event', { value: v })
+          setRobux(v)
+        }
+      }
+    }
+    window.addEventListener('storage', onStorage)
+
+    // same-tab custom events
+    const onRobuxSet = (e: Event) => {
+      const val = (e as CustomEvent)?.detail?.value
+      console.log('[robux][header] event robux:set', { value: val })
+      if (typeof val === 'number' && Number.isFinite(val)) {
+        setRobux(val)
+        localStorage.setItem('robux', String(val))
+      }
+    }
+    const onRobuxAdd = (e: Event) => {
+      const delta = (e as CustomEvent)?.detail?.delta
+      console.log('[robux][header] event robux:add', { delta })
+      if (typeof delta === 'number' && Number.isFinite(delta)) {
+        setRobux((prev) => {
+          const next = Math.max(0, prev + delta)
+          localStorage.setItem('robux', String(next))
+          console.log('[robux][header] add -> next', { prev, delta, next })
+          return next
+        })
+      }
+    }
+
+    window.addEventListener('robux:set', onRobuxSet as EventListener)
+    window.addEventListener('robux:add', onRobuxAdd as EventListener)
+
+    // โฟกัส/visible -> sync ซ้ำ (กันพลาด)
+    const syncFromLocal = () => {
+      try {
+        const raw = localStorage.getItem('robux')
+        const cur = Number(raw ?? '0')
+        const safe = Number.isFinite(cur) ? cur : 0
+        setRobux(safe)
+        if (localStorage.getItem('robux_needs_broadcast') === '1') {
+          window.dispatchEvent(new CustomEvent('robux:set', { detail: { value: safe } }))
+          localStorage.removeItem('robux_needs_broadcast')
+        }
+      } catch {}
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') syncFromLocal()
+    }
+    window.addEventListener('focus', syncFromLocal)
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('robux:set', onRobuxSet as EventListener)
+      window.removeEventListener('robux:add', onRobuxAdd as EventListener)
+      window.removeEventListener('focus', syncFromLocal)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
+
+  // === เมนู Robux (dropdown) ===
+  const [openRobuxMenu, setOpenRobuxMenu] = useState(false)
+  const robuxMenuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const onClickOutside = (e: MouseEvent) => {
+      if (!robuxMenuRef.current) return
+      if (!robuxMenuRef.current.contains(e.target as Node)) {
+        setOpenRobuxMenu(false)
+      }
+    }
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenRobuxMenu(false)
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    document.addEventListener('keydown', onEsc)
+    return () => {
+      document.removeEventListener('mousedown', onClickOutside)
+      document.removeEventListener('keydown', onEsc)
+    }
+  }, [])
+
+  const dispatchRobuxAdd = (delta: number) => {
+    window.dispatchEvent(new CustomEvent('robux:add', { detail: { delta } }))
+  }
+  const dispatchRobuxSet = (value: number) => {
+    window.dispatchEvent(new CustomEvent('robux:set', { detail: { value } }))
+  }
 
   return (
     <header className="sticky top-0 z-40 backdrop-blur supports-[backdrop-filter]:bg-black/30 bg-black/20 border-b border-white/10">
@@ -70,7 +184,6 @@ export default function Header() {
                         className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 transition"
                         onClick={() => setQuery('')}
                       >
-             
                         <img src={item.image} alt={item.title} className="w-6 h-6 rounded object-cover" />
                         <span className="text-sm text-white/90 line-clamp-1">{item.title}</span>
                       </Link>
@@ -78,6 +191,50 @@ export default function Header() {
                   ))}
                 </ul>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* Robux pill + เมนู */}
+        <div className="relative" ref={robuxMenuRef}>
+          <button
+            title="Robux ของฉัน"
+            onClick={() => setOpenRobuxMenu((v) => !v)}
+            className="hidden sm:flex items-center gap-1.5 h-9 px-3 rounded-full bg-white/10 ring-1 ring-white/15 hover:bg-white/20"
+          >
+            <img src="/icon/robux.svg" alt="Robux" className="w-4 h-4 opacity-90" />
+            <span className="text-sm font-semibold tabular-nums">{robux.toLocaleString('th-TH')}</span>
+            <span className="i-lucide-chevron-down ml-1 opacity-70" aria-hidden />
+          </button>
+
+          {openRobuxMenu && (
+            <div className="absolute right-0 mt-2 w-64 rounded-lg border border-white/10 bg-black/85 backdrop-blur shadow-xl overflow-hidden">
+              <div className="px-3 py-2 text-xs text-white/60 border-b border-white/10">กระเป๋า Robux</div>
+              <div className="p-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <img src="/icon/robux.svg" alt="Robux" className="w-4 h-4 opacity-90" />
+                  <span className="text-white font-semibold tabular-nums">{robux.toLocaleString('th-TH')}</span>
+                </div>
+                <button
+                  onClick={() => dispatchRobuxAdd(100)}
+                  className="text-[11px] px-2 py-1 rounded bg-emerald-400/20 text-emerald-200 ring-1 ring-emerald-400/40 hover:bg-emerald-400/30"
+                >
+                  +100 (เร็ว)
+                </button>
+              </div>
+              <div className="border-t border-white/10" />
+              <ul className="p-1">
+                <li>
+                  <Link
+                    href="/buy-robux"
+                    onClick={() => setOpenRobuxMenu(false)}
+                    className="flex items-center gap-2 px-3 py-2 rounded hover:bg-white/10 text-sm"
+                  >
+                    <span className="i-lucide-badge-dollar" aria-hidden />
+                    ซื้อ Robux
+                  </Link>
+                </li>
+              </ul>
             </div>
           )}
         </div>
@@ -93,7 +250,6 @@ export default function Header() {
 
         {/* Cart */}
         <div className="relative">
-          {/* +1 bubble */}
           <span
             key={plusOne}
             className="pointer-events-none absolute -right-1 -top-2 select-none text-[10px] font-bold text-emerald-300 opacity-0

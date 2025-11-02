@@ -32,7 +32,38 @@ function stableHash(str: string) {
     h ^= str.charCodeAt(i)
     h = Math.imul(h, 16777619)
   }
-  return (h >>> 0)
+  return h >>> 0
+}
+
+/** แสดงราคาแบบมีไอคอน Robux นำหน้า (ไอคอนขาว) */
+function Price({
+  amount,
+  type = 'normal', // 'normal' | 'strike' | 'discounted' | 'free'
+}: {
+  amount: number
+  type?: 'normal' | 'strike' | 'discounted' | 'free'
+}) {
+  const style = {
+    normal:
+      'text-white font-semibold text-base leading-tight drop-shadow-[0_0_6px_rgba(255,255,255,0.35)]',
+    strike: 'text-white/40 text-[10px] leading-tight line-through',
+    discounted: 'text-cyan-200/90 text-sm font-semibold leading-tight',
+    free: 'text-base font-extrabold tracking-tight text-cyan-300 leading-tight',
+  }[type]
+
+  const iconSize = type === 'strike' ? 'h-3 w-3' : 'h-3.5 w-3.5'
+
+  return (
+    <div className={`inline-flex items-center gap-1 [font-variant-numeric:tabular-nums] ${style}`}>
+      <img
+        src="/icon/robux.svg"
+        alt="Robux"
+        className={`${iconSize} translate-y-[.5px] opacity-90 invert brightness-0`}
+        aria-hidden
+      />
+      <span>{amount.toLocaleString()}</span>
+    </div>
+  )
 }
 
 export default function ProductCard({ item }: { item: Item }) {
@@ -66,28 +97,27 @@ export default function ProductCard({ item }: { item: Item }) {
   }
 
   const hasDiscount =
-    !!item.discountPct ||
-    (
-      (item as any).priceBefore != null &&
-      num(String(item.price)) < num(String((item as any).priceBefore))
-    ) ||
-    (Array.isArray((item as any).badges) && (item as any).badges.includes('SALE'))
+    !!(item as any).discountPct ||
+    ((item as any).priceBefore != null &&
+      num(String(item.price)) < num(String((item as any).priceBefore))) ||
+    (Array.isArray((item as any).badges) && (item as any).badges.includes('SALE')) ||
+    !!promo
 
-  // === ไปหน้า Checkout ทันที พร้อมพารามิเตอร์สินค้า ===
-  const goCheckoutNow = () => {
+  // ไปหน้า Finish (ยืนยันการซื้อ) พร้อมพารามิเตอร์สินค้า + จำนวน Robux ที่จะตัด
+  const goFinishNow = () => {
     const params = new URLSearchParams({
       id: item.id,
       name: item.title,
       price: String(payPrice),
-      currency: 'THB',             // เปลี่ยนได้ตามจริง
-      qty: '1',                    // ให้ผู้ใช้แก้ทีหลังได้ หรือทำ UI เลือกจำนวน
+      currency: 'R$',           // UI ฝั่งรับจะโชว์เป็น Robux
+      qty: '1',
       image: item.image || '',
       description: item.by ? `By ${item.by}` : '',
-      // model, stock ใส่เพิ่มได้ถ้ามี
+      robuxSpend: String(payPrice), // ให้หน้าถัดไปตัด Robux ตามนี้จาก localStorage
+      returnTo: '/',             // เปลี่ยนปลายทางหลังยืนยันได้
     })
-    // ถ้าอยากยิงแอนิเมชันบินเข้าตะกร้าก่อนก็ยังทำได้ (optional)
     emitCartAdd({ sourceEl: imgRef.current })
-    router.push(`/checkout?${params.toString()}`)
+    router.push(`/finish?${params.toString()}`)
   }
 
   return (
@@ -137,31 +167,21 @@ export default function ProductCard({ item }: { item: Item }) {
           <div className="flex-1" />
 
           <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-3">
-            <div className="h-11 flex flex-col justify-end [font-variant-numeric:tabular-nums]">
+            <div className="h-11 flex flex-col justify-end">
               {basePrice === 0 ? (
                 <>
                   <div className="text-[11px] leading-tight text-white/50 line-through invisible select-none">-</div>
-                  <div className="text-base font-extrabold tracking-tight text-cyan-300 leading-tight">
-                    Free
-                  </div>
+                  <div className="text-base font-extrabold tracking-tight text-cyan-300 leading-tight">Free</div>
                 </>
               ) : promo ? (
                 <>
-                  <div className="text-[11px] leading-tight text-white/50 line-through">
-                    {item.price ?? '-'}
-                  </div>
-                  <div className="text-base font-extrabold tracking-tight text-cyan-300 leading-tight">
-                    {payPrice.toLocaleString()}
-                  </div>
+                  <Price amount={basePrice} type="strike" />
+                  <Price amount={payPrice} type="discounted" />
                 </>
               ) : (
                 <>
-                  <div className="text-[11px] leading-tight text-white/50 line-through invisible select-none">
-                    {item.price ?? '-'}
-                  </div>
-                  <div className="text-base font-semibold text-cyan-300 leading-tight">
-                    {item.price ?? '-'}
-                  </div>
+                  <div className="text-[11px] leading-tight text-white/50 line-through invisible select-none">-</div>
+                  <Price amount={basePrice} type="normal" />
                 </>
               )}
             </div>
@@ -173,8 +193,8 @@ export default function ProductCard({ item }: { item: Item }) {
                 ring-1 ring-white/15
                 transition
               "
-              aria-label={`Checkout ${item.title} now`}
-              onClick={goCheckoutNow}
+              aria-label={`Finish ${item.title} now`}
+              onClick={goFinishNow}
             >
               ดูรายละเอียดสินค้า
             </button>

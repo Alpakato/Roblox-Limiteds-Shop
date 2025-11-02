@@ -2,17 +2,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Item } from '@/types/catalog'
 import Link from 'next/link'
-// ถ้ามีเอฟเฟกต์บินเข้า cart อยู่แล้ว ให้ใช้ได้เลย (จะไม่พังถ้าไม่มี)
 import { emitCartAdd } from '@/app/lib/flyToCart'
+import { useRouter } from 'next/navigation'
 
-// === CONFIG KEYS ===
-const STORAGE_KEY_SESSION = 'special_offer_shown_v1'        // กันเด้งซ้ำใน session
-const STORAGE_KEY_ENDAT   = 'special_offer_end_at_v1'        // นับเวลาต่อได้ข้ามรีโหลด
+const STORAGE_KEY_SESSION = 'special_offer_shown_v1'
+const STORAGE_KEY_ENDAT   = 'special_offer_end_at_v1'
 
 type Props = {
   items: Item[]
   openDelayMs?: number
-  durationMs?: number // default 5 นาที
+  durationMs?: number
   discountPct?: number
   oncePerSession?: boolean
   exitIntentEnabled?: boolean
@@ -37,7 +36,6 @@ function seededPick<T>(arr: T[], seed = ''): T | null {
   return arr[Math.floor(r * arr.length)]
 }
 
-// พยายามอ่านราคา ถ้าไม่มี ก็ไม่โชว์ตัวเลข ลดเหลือโชว์แค่ % พิเศษ
 function parseNumericPrice(p?: string | number | null): number | null {
   if (p == null) return null
   if (typeof p === 'number' && isFinite(p)) return p
@@ -45,6 +43,38 @@ function parseNumericPrice(p?: string | number | null): number | null {
   if (!s) return null
   const n = Number(s)
   return Number.isFinite(n) ? n : null
+}
+
+/** ---- แสดงราคา + ไอคอน Robux สีขาวนำหน้า ---- */
+function PriceInline({
+  amount,
+  type = 'normal', // 'normal' | 'strike' | 'discounted'
+}: {
+  amount: number
+  type?: 'normal' | 'strike' | 'discounted'
+}) {
+  const style =
+    type === 'strike'
+      ? 'text-white/40 text-[12px] leading-tight line-through'
+      : type === 'discounted'
+      ? 'text-cyan-200/90 text-sm font-semibold leading-tight'
+      : 'text-white font-semibold text-base leading-tight drop-shadow-[0_0_6px_rgba(255,255,255,0.35)]'
+
+  const iconSize = type === 'strike' ? 'h-3 w-3' : 'h-3.5 w-3.5'
+
+  return (
+    <span className={`inline-flex items-center gap-1 align-middle ${style}`}>
+      <img
+        src="/icon/robux.svg"
+        alt="Robux"
+        className={`${iconSize} translate-y-[.5px] opacity-90 invert brightness-0`}
+        aria-hidden
+      />
+      <span className="[font-variant-numeric:tabular-nums]">
+        {amount.toLocaleString('th-TH')}
+      </span>
+    </span>
+  )
 }
 
 export default function SpecialOfferPopup({
@@ -60,25 +90,24 @@ export default function SpecialOfferPopup({
   const [msLeft, setMsLeft] = useState(durationMs)
   const [item, setItem] = useState<Item | null>(null)
   const btnRef = useRef<HTMLButtonElement | null>(null)
+  const router = useRouter()
 
-  // เลือกสินค้าพิเศษ: ผสมทั้ง ROBLOX และ UGC
   const pool = items
   const picked = useMemo(() => {
-    // ใช้ path + เวลาบางส่วนเป็น seed ให้สุ่มคงที่ในช่วงหนึ่ง
-    const seed = typeof window !== 'undefined' ? (location.pathname + '|' + new Date().toDateString()) : 'seed'
+    const seed =
+      typeof window !== 'undefined'
+        ? location.pathname + '|' + new Date().toDateString()
+        : 'seed'
     return seededPick(pool, seed)
   }, [pool])
 
-  // เปิดเมื่อครบดีเลย์, ถ้าเปิดไปแล้วใน session จะไม่เด้งอีก
   useEffect(() => {
     if (!pool.length) return
 
-    // ถ้ามี endAt ค้างจากรอบก่อน (reload) ให้ใช้ต่อ
     const persistedEndAtRaw = localStorage.getItem(STORAGE_KEY_ENDAT)
     const persistedEndAt = persistedEndAtRaw ? Number(persistedEndAtRaw) : null
     const alreadyThisSession = sessionStorage.getItem(STORAGE_KEY_SESSION) === '1'
 
-    // ถ้าหมดเวลาไปแล้วก็ล้าง
     if (persistedEndAt && Date.now() > persistedEndAt) {
       localStorage.removeItem(STORAGE_KEY_ENDAT)
     }
@@ -88,9 +117,9 @@ export default function SpecialOfferPopup({
       const chosen = picked ?? pool[0]
       setItem(chosen)
 
-      // เซ็ต endAt: ถ้ามีค้าง ใช้ต่อ, ถ้าไม่มี สร้างใหม่
       const now = Date.now()
-      const finalEndAt = persistedEndAt && persistedEndAt > now ? persistedEndAt : now + durationMs
+      const finalEndAt =
+        persistedEndAt && persistedEndAt > now ? persistedEndAt : now + durationMs
       localStorage.setItem(STORAGE_KEY_ENDAT, String(finalEndAt))
       setEndAt(finalEndAt)
 
@@ -100,7 +129,6 @@ export default function SpecialOfferPopup({
 
     const t = setTimeout(show, openDelayMs)
 
-    // exit-intent (เอาใจสาย conversion 😅)
     const onMouseLeave = (e: MouseEvent) => {
       if (!exitIntentEnabled) return
       if (e.clientY <= 0) {
@@ -117,7 +145,6 @@ export default function SpecialOfferPopup({
     }
   }, [pool, picked, openDelayMs, durationMs, oncePerSession, exitIntentEnabled])
 
-  // นับถอยหลัง
   useEffect(() => {
     if (!endAt || !open) return
     const tick = () => {
@@ -138,20 +165,29 @@ export default function SpecialOfferPopup({
   const origPrice = parseNumericPrice((item as any)?.price ?? (item as any)?.lowestPrice ?? null)
   const salePrice = origPrice != null ? Math.max(0, Math.round(origPrice * (1 - discountPct / 100))) : null
 
-  const handleAddToCart = (e: React.MouseEvent<HTMLButtonElement>) => {
+  // ✅ ไปหน้า /finish พร้อมตัด robux จาก localStorage ที่หน้า Finish
+  const handleCheckoutNow = () => {
+    const payPrice = (salePrice ?? origPrice ?? 0)
+    const returnTo =
+      typeof window !== 'undefined' ? window.location.pathname + window.location.search : '/'
+    const params = new URLSearchParams({
+      id: item.id,
+      name: item.title,
+      price: String(payPrice),
+      currency: 'R$',
+      qty: '1',
+      image: item.image || '',
+      description: item.by ? `By ${item.by}` : '',
+      robuxSpend: String(payPrice),
+      returnTo,
+    })
     try {
-      // แจ้งเอฟเฟกต์บินเข้าตะกร้า ถ้ามี
-      emitCartAdd?.({ sourceEl: e.currentTarget })
+      emitCartAdd?.({ sourceEl: btnRef.current })
     } catch {}
-    // ส่งผู้ใช้ไปหน้าตะกร้า (เดโม)
-    location.href = '/cart'
+    router.push(`/finish?${params.toString()}`)
   }
 
-  const handleClose = () => {
-    setOpen(false)
-    // ไม่ลบ endAt เพื่อให้กลับมาเปิดต่อได้ ถ้าคุณอยากปิดถาวรในรอบนี้ ให้ลบด้วย:
-    // localStorage.removeItem(STORAGE_KEY_ENDAT)
-  }
+  const handleClose = () => setOpen(false)
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center">
@@ -182,7 +218,6 @@ export default function SpecialOfferPopup({
         {/* Body */}
         <div className="p-5 flex gap-4">
           <div className="w-24 h-24 shrink-0 rounded-xl overflow-hidden ring-1 ring-white/10 bg-black/30">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={item.image} alt={item.title} className="w-full h-full object-cover" />
           </div>
 
@@ -197,16 +232,11 @@ export default function SpecialOfferPopup({
               </span>
             </div>
 
-            {/* ราคา (ถ้า parse ได้) */}
+            {/* ราคา (แบบมีไอคอน Robux) */}
             {origPrice != null ? (
-              <div className="mt-2 text-[15px]">
-                <span className="text-white/60 line-through mr-2">
-                  {origPrice.toLocaleString('th-TH')}
-                </span>
-                <span className="text-emerald-300 font-extrabold">
-                  {salePrice!.toLocaleString('th-TH')}
-                </span>
-                <span className="text-white/60 text-xs ml-1">R$</span>
+              <div className="mt-2 flex items-baseline gap-2">
+                <PriceInline amount={origPrice} type="strike" />
+                <PriceInline amount={salePrice!} type="discounted" />
               </div>
             ) : (
               <div className="mt-2 text-white/70 text-sm">ดีลลด {discountPct}% • คงเหลือเวลา {mmss(msLeft)}</div>
@@ -216,10 +246,11 @@ export default function SpecialOfferPopup({
             <div className="mt-3 flex gap-2">
               <button
                 ref={btnRef}
-                onClick={handleAddToCart}
+                onClick={handleCheckoutNow}
                 className="flex-1 rounded-xl px-4 py-2 font-semibold text-black
                            bg-gradient-to-b from-emerald-400 to-emerald-500 hover:from-emerald-300 hover:to-emerald-400
                            ring-1 ring-emerald-300/40 shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+                aria-label={`Checkout ${item.title} now`}
               >
                 ซื้อทันที
               </button>
@@ -238,15 +269,13 @@ export default function SpecialOfferPopup({
           </div>
         </div>
 
-        {/* Footer ลิงก์ไปหน้ารายละเอียด (ถ้ามี path จริงของคุณใส่แทน #) */}
+        {/* Footer */}
         <div className="px-5 pb-4 -mt-2">
           <Link href={`/view/${encodeURIComponent(item.id)}`} className="text-xs text-white/60 hover:text-white">
             ดูรายละเอียดสินค้า →
           </Link>
         </div>
       </div>
-
-    
     </div>
   )
 }
